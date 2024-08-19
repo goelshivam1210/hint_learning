@@ -1,6 +1,6 @@
 from __future__ import annotations
 import gymnasium as gym
-from gym.utils import seeding
+from gymnasium.utils import seeding
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
 from minigrid.core.world_object import Ball, Box
@@ -35,6 +35,7 @@ class SimpleEnv(MiniGridEnv):
             **kwargs,
         ):
             self.step_count = 0
+            self.cumulative_reward = 0
             self.agent_start_pos = agent_start_pos
             self.agent_start_dir = agent_start_dir
 
@@ -170,79 +171,10 @@ class SimpleEnv(MiniGridEnv):
 
         return combined_obs
 
-    # def step(self, action):
-        # Custom action for crafting the sword
-        if action == self.Actions.craft_sword.value:
-            fwd_pos = self.front_pos
-            fwd_cell = self.grid.get(*fwd_pos)
-
-            # Check if the agent is in front of the crafting table and has required items
-            if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table
-                if "Tree" in self.inventory and "Iron Ore" in self.inventory:
-                    # Remove the required resources
-                    self.inventory.remove("Tree")
-                    self.inventory.remove("Iron Ore")
-                    # Add the crafted item to the inventory
-                    self.inventory.append("Iron Sword")
-                    print("Crafted an Iron Sword!")
-                    reward = 10  # Reward for crafting
-                    terminated = False
-                    truncated = False
-                    return self.get_obs(), reward, terminated, truncated, {}
-
-                else:
-                    # print("You need Tree and Iron Ore to craft a sword.")
-                    return self.get_obs(), -1, False, False, {}
-
-        # Custom action for opening the chest
-        elif action == self.Actions.open_chest.value:
-            fwd_pos = self.front_pos
-            fwd_cell = self.grid.get(*fwd_pos)
-
-            # Check if the agent is in front of the chest and has an Iron Sword
-            if isinstance(fwd_cell, Box) and fwd_cell.color == 'purple':  # Chest
-                if "Iron Sword" in self.inventory:
-                    # Add the treasure to the inventory and end the game
-                    self.inventory.append("Treasure")
-                    print("Found the treasure! You win!")
-                    reward = 1000  # Large reward for finding the treasure
-                    terminated = True  # End the game
-                    truncated = False
-                    return self.get_obs(), reward, terminated, truncated, {}
-
-                else:
-                    # print("You need an Iron Sword to open the chest.")
-                    return self.get_obs(), -1, False, False, {}
-
-        # Handle the toggle action for collecting resources or interacting with boxes
-        elif action == self.Actions.toggle.value:
-            fwd_pos = self.front_pos
-            fwd_cell = self.grid.get(*fwd_pos)
-
-            # Only collect Resource objects, not Box objects
-            if isinstance(fwd_cell, Resource):
-                self.inventory.append(fwd_cell.resource_name)
-                self.grid.set(*fwd_pos, None)  # Remove the object from the grid
-                reward = 1
-                terminated = False
-                truncated = False
-                return self.get_obs(), reward, terminated, truncated, {}
-
-            # If it's a Box (like chest or crafting table), don't allow it to be collected
-            elif isinstance(fwd_cell, Box):
-                # print(f"Interacted with {fwd_cell.color} box but cannot collect.")
-                return self.get_obs(), -1, False, False, {}
-
-        # Fallback to the parent class's step function for basic actions (move, turn, etc.)
-        self.step_count += 1  # Keep track of step count
-        obs, reward, terminated, truncated, info = super().step(action)
-
-        # Override the observation to return the custom observation format (lidar + inventory)
-        # print (reward, terminated, truncated, info)
-        return self.get_obs(), reward, terminated, truncated, info
 
     def step(self, action):
         reward = -1  # Default time step penalty
+        self.cumulative_reward += reward  # Track the cumulative reward
 
         # Custom action for crafting the sword
         if action == self.Actions.craft_sword.value:
@@ -260,6 +192,7 @@ class SimpleEnv(MiniGridEnv):
                         reward += 50  # Reward for crafting the sword within the first `max_reward_episodes` episodes
                 else:
                     reward += -1  # Penalize failed crafting attempt
+                self.cumulative_reward += reward
                 return self.get_obs(), reward, False, False, {}
 
         # Custom action for opening the chest
@@ -272,9 +205,15 @@ class SimpleEnv(MiniGridEnv):
                     self.inventory.append("Treasure")
                     print("Found the treasure! You win!")
                     reward += 1000  # Large reward for reaching the goal
-                    return self.get_obs(), reward, True, False, {}  # End the game
+                    self.cumulative_reward += reward  # Track the cumulative reward
+                    terminated = True
+                    truncated = False
+                    # Print the cumulative reward at the end of the episode
+                    # print(f"Episode {self.current_episode}: Cumulative Reward = {self.cumulative_reward}")
+                    return self.get_obs(), reward, terminated, False, {}  # End the game
                 else:
                     reward += -1  # Penalize for not having the sword
+                self.cumulative_reward += reward
                 return self.get_obs(), reward, False, False, {}
 
         # Handle the toggle action for collecting resources
@@ -282,22 +221,36 @@ class SimpleEnv(MiniGridEnv):
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
+            # Only collect Resource objects, not Box objects
             if isinstance(fwd_cell, Resource):
                 if fwd_cell.resource_name not in self.collected_resources_global:
                     self.collected_resources_global.add(fwd_cell.resource_name)
                     self.inventory.append(fwd_cell.resource_name)
-                    self.grid.set(*fwd_pos, None)
+                    self.grid.set(*fwd_pos, None)  # Remove the object from the grid
                     reward += 1  # Reward for collecting the resource for the first time during training
                 else:
                     reward += -1  # Penalize for redundant resource collection
+                self.cumulative_reward += reward
                 return self.get_obs(), reward, False, False, {}
 
-        # Per step penalty
+            # If it's a Box (like chest or crafting table), don't allow it to be collected
+            elif isinstance(fwd_cell, Box):
+                # The agent cannot collect Box objects (chest or crafting table)
+                return self.get_obs(), -1, False, False, {}
+
+        # Fallback to the parent class's step function for basic actions (move, turn, etc.)
+        self.step_count += 1  # Keep track of step count
         obs, reward_super, terminated, truncated, info = super().step(action)
         reward += reward_super
+        self.cumulative_reward += reward
 
-        return self.get_obs(), reward, terminated, truncated, info    
+        # # Check if the episode has ended
+        # if terminated or truncated:
+        #     # print(f"Episode {self.current_episode}: Cumulative Reward = {self.cumulative_reward}")
 
+        return self.get_obs(), reward, terminated, truncated, info
+
+   
     def reset(self, seed=None, **kwargs):
         self.np_random, seed = seeding.np_random(seed)
         self.inventory = []
@@ -305,13 +258,12 @@ class SimpleEnv(MiniGridEnv):
 
         # Increase the episode count
         self.current_episode += 1
+        self.cumulative_reward = 0  # Reset cumulative reward at the start of the episode
+
 
         self._gen_grid(self.width, self.height)
         self.place_agent()
         self.step_count = 0
-        return self.get_obs(), {}
-
-        # Return the custom observation format
         return self.get_obs(), {}
 
     def render(self):

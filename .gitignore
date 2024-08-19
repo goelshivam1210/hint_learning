@@ -1,0 +1,71 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+venv/
+ENV/
+env.bak/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# VSCode directories
+.vscode/
+
+# PyCharm project files
+.idea/
+
+# Conda environment
+conda-requirements.txt
+
+# Installer logs
+pip-log.txt
+
+# Unit test / coverage reports
+htmlcov/
+.coverage
+.tox/
+.cache
+.nox/
+
+# Pytest cache
+.pytest_cache/
+
+# Virtual environment
+venv/
+*.env
+
+# Python virtualenv
+*.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE settings
+.vscode/
+.idea/
+
+# TensorBoard logs
+logs/
+log/
+
+# Ignore the actual log files
+*.log
+
+# Ignore exported model files
+model/
+models/

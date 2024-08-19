@@ -19,6 +19,7 @@ from env import SimpleEnv
 lr = 5e-4
 gamma = 0.99
 epoch = 1000
+epoch = 10
 batch_size = 64
 n_step = 5
 step_per_epoch = 2000
@@ -32,7 +33,7 @@ convergence_threshold = 0.9  # 90%
 convergence_window = 10  # Last 10 evaluations
 
 # Device setup
-device = torch.device("cpu") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Create environment
 def make_env():
@@ -72,7 +73,7 @@ ppo_policy = PPOPolicy(
     vf_coef=0.5,
     ent_coef=0.01,
     eps_clip=0.2,
-    reward_normalization=True,
+    reward_normalization=False,
     action_scaling=False,
     action_space=action_space
 ).to(device)
@@ -95,24 +96,24 @@ success_history = []
 def stop_fn(mean_rewards):
     global success_history
     
-    # Check terminated flags from collected episodes
-    batch = test_collector.buffer.sample(episode_per_test)[0]  # Take a sample of episodes
-    terminated_flags = batch.info.get("terminated", np.zeros_like(batch.rew))
-
-    # Count successes based on terminated flags
+    # Collect the terminated flags from all episodes in the test collector's buffer
+    terminated_flags = [info['terminated'] for info in test_collector.buffer.info if 'terminated' in info]
+    
+    # Count successes based on terminated flags (terminated == True indicates success)
     successes = np.sum(terminated_flags)
 
     # Update success history
     success_history.append(successes)
 
+    # Limit the success history to the last `convergence_window` evaluations
     if len(success_history) > convergence_window:
         success_history = success_history[-convergence_window:]
 
-    # Calculate the success rate over the last convergence_window episodes
+    # Calculate the success rate over the last convergence_window evaluations
     success_rate = np.mean(success_history) / episode_per_test  # Normalize by the number of test episodes
 
     print(f"Success Rate: {success_rate * 100:.2f}%")
-    
+
     # If the success rate exceeds the convergence threshold, stop training
     return success_rate >= convergence_threshold
 
