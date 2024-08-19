@@ -1,6 +1,6 @@
-# Gridworld Reinforcement Learning Environment with PPO
+# See-Say : Code base for Hint guided learning
 
-This project implements a custom gridworld environment using the MiniGrid framework and trains a reinforcement learning agent using Proximal Policy Optimization (PPO) with Tianshou. The goal of the agent is to collect resources, craft a sword, and find a treasure in the environment.
+Currently we have custom gridworld environment using the MiniGrid framework that trains a reinforcement learning agent using Proximal Policy Optimization (PPO) with Tianshou. The goal of the agent is to collect resources, craft a sword, and find a treasure in the environment.
 
 ## Table of Contents
 1. [Overview](#overview)
