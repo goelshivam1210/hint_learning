@@ -191,8 +191,8 @@ class SimpleEnv(MiniGridEnv):
                     print("Crafted an Iron Sword!")
                     self.sword_crafted = True
                     # if self.current_episode < self.max_reward_episodes:
-                    reward += 1000  # Reward for crafting the sword within the first `max_reward_episodes` episodes
-                    terminated = True
+                    reward += 50 # Reward for crafting the sword within the first `max_reward_episodes` episodes
+                    # terminated = True
                     self.cumulative_reward += reward
 
                 return self.get_obs(), reward, terminated, truncated, {}
