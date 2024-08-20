@@ -16,10 +16,10 @@ from tianshou.utils import TensorboardLogger
 from env import SimpleEnv
 
 # Hyperparameters
-lr = 5e-4
+lr = 1e-5
 gamma = 0.99
 epoch = 1000
-epoch = 10
+epoch = 1000
 batch_size = 64
 n_step = 5
 step_per_epoch = 2000
@@ -33,7 +33,7 @@ convergence_threshold = 0.9  # 90%
 convergence_window = 10  # Last 10 evaluations
 
 # Device setup
-device = torch.device("cuda") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Create environment
 def make_env():
@@ -53,7 +53,7 @@ inventory_shape = obs_space['inventory'].shape
 combined_shape = (lidar_shape[0] * lidar_shape[1] + inventory_shape[0],)  # Flatten lidar and add inventory
 
 # Define the Actor and Critic networks for PPO
-net = Net(combined_shape, hidden_sizes=[128, 128], device=device)
+net = Net(combined_shape, hidden_sizes=[256, 64], device=device)
 actor = Actor(net, action_space.n, device=device).to(device)
 critic = Critic(net, device=device).to(device)
 actor_critic = ActorCritic(actor, critic).to(device)

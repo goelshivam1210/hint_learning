@@ -31,7 +31,7 @@ class SimpleEnv(MiniGridEnv):
             agent_start_pos=(1, 1),
             agent_start_dir=0,
             max_steps: int | None = None,
-            max_reward_episodes: int = 20,  # Number of episodes with sword reward
+            max_reward_episodes: int = 100,  # Number of episodes with sword reward
             **kwargs,
         ):
             self.step_count = 0
@@ -173,8 +173,10 @@ class SimpleEnv(MiniGridEnv):
 
 
     def step(self, action):
-        reward = -1  # Default time step penalty
+        reward = -0.1  # Default time step penalty
         self.cumulative_reward += reward  # Track the cumulative reward
+        terminated = False
+        truncated = False
 
         # Custom action for crafting the sword
         if action == self.Actions.craft_sword.value:
@@ -188,12 +190,12 @@ class SimpleEnv(MiniGridEnv):
                     self.inventory.append("Iron Sword")
                     print("Crafted an Iron Sword!")
                     self.sword_crafted = True
-                    if self.current_episode < self.max_reward_episodes:
-                        reward += 50  # Reward for crafting the sword within the first `max_reward_episodes` episodes
-                else:
-                    reward += -1  # Penalize failed crafting attempt
-                self.cumulative_reward += reward
-                return self.get_obs(), reward, False, False, {}
+                    # if self.current_episode < self.max_reward_episodes:
+                    reward += 1000  # Reward for crafting the sword within the first `max_reward_episodes` episodes
+                    terminated = True
+                    self.cumulative_reward += reward
+
+                return self.get_obs(), reward, terminated, truncated, {}
 
         # Custom action for opening the chest
         elif action == self.Actions.open_chest.value:
@@ -205,16 +207,14 @@ class SimpleEnv(MiniGridEnv):
                     self.inventory.append("Treasure")
                     print("Found the treasure! You win!")
                     reward += 1000  # Large reward for reaching the goal
-                    self.cumulative_reward += reward  # Track the cumulative reward
+                    self.cumulative_reward += reward
                     terminated = True
                     truncated = False
-                    # Print the cumulative reward at the end of the episode
-                    # print(f"Episode {self.current_episode}: Cumulative Reward = {self.cumulative_reward}")
-                    return self.get_obs(), reward, terminated, False, {}  # End the game
-                else:
-                    reward += -1  # Penalize for not having the sword
-                self.cumulative_reward += reward
-                return self.get_obs(), reward, False, False, {}
+                    return self.get_obs(), reward, terminated, truncated, {}  # End the game
+                # else:
+                #     reward += -0.1  # Penalize for not having the sword
+                # self.cumulative_reward += reward
+                return self.get_obs(), reward, terminated, truncated, {}
 
         # Handle the toggle action for collecting resources
         elif action == self.Actions.toggle.value:
@@ -227,26 +227,25 @@ class SimpleEnv(MiniGridEnv):
                     self.collected_resources_global.add(fwd_cell.resource_name)
                     self.inventory.append(fwd_cell.resource_name)
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
-                    reward += 1  # Reward for collecting the resource for the first time during training
+                    reward += 5 # Reward for collecting the resource for the first time during training
                 else:
-                    reward += -1  # Penalize for redundant resource collection
-                self.cumulative_reward += reward
-                return self.get_obs(), reward, False, False, {}
+                    reward += -0.5  # Penalize for redundant resource collection
+                return self.get_obs(), reward, terminated, truncated, {}
 
             # If it's a Box (like chest or crafting table), don't allow it to be collected
             elif isinstance(fwd_cell, Box):
                 # The agent cannot collect Box objects (chest or crafting table)
-                return self.get_obs(), -1, False, False, {}
+                return self.get_obs(), reward, terminated, truncated, {}
 
         # Fallback to the parent class's step function for basic actions (move, turn, etc.)
         self.step_count += 1  # Keep track of step count
         obs, reward_super, terminated, truncated, info = super().step(action)
         reward += reward_super
-        self.cumulative_reward += reward
+        # print (f"info = {info}")
 
-        # # Check if the episode has ended
+        # Check if the episode has ended
         # if terminated or truncated:
-        #     # print(f"Episode {self.current_episode}: Cumulative Reward = {self.cumulative_reward}")
+        #     print(f"Episode {self.current_episode}: Cumulative Reward = {self.cumulative_reward}")
 
         return self.get_obs(), reward, terminated, truncated, info
 
@@ -258,7 +257,7 @@ class SimpleEnv(MiniGridEnv):
 
         # Increase the episode count
         self.current_episode += 1
-        self.cumulative_reward = 0  # Reset cumulative reward at the start of the episode
+        self.cumulative_reward = 0
 
 
         self._gen_grid(self.width, self.height)
