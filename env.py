@@ -48,7 +48,11 @@ class SimpleEnv(MiniGridEnv):
             # Tracking if the sword has been crafted this episode
             self.sword_crafted = False
 
+            # Updated the resource_names to reflect only non-collected world items
             self.resource_names = ["Iron Ore", "Silver Ore", "Platinum Ore", "Gold Ore", "Tree", "Chest", "Crafting Table", "Wall"]
+
+            # Inventory for collected items
+            self.inventory_items = ["Iron", "Silver", "Gold", "Platinum", "Wood", "Iron Sword", "Treasure"]
 
             self.inventory = []
             mission_space = MissionSpace(mission_func=self._gen_mission)
@@ -66,10 +70,11 @@ class SimpleEnv(MiniGridEnv):
 
             self.action_space = gym.spaces.Discrete(len(self.Actions))
 
+            # Adjusted lidar observation to focus on the non-collected world items
             lidar_shape = (8, len(self.resource_names))  # 8 beams, each detecting one of the 8 possible entities
             self.observation_space = gym.spaces.Dict({
                 "lidar": gym.spaces.Box(low=0, high=1, shape=lidar_shape, dtype=np.float32),
-                "inventory": gym.spaces.MultiDiscrete([10]*len(self.resource_names))  # Maximum 10 of each item in inventory
+                "inventory": gym.spaces.MultiDiscrete([10] * len(self.inventory_items))  # Maximum 10 of each item in inventory
             })
 
 
@@ -113,6 +118,7 @@ class SimpleEnv(MiniGridEnv):
             self.place_agent()  # Place the agent randomly if no start position is specified
 
     def get_lidar_observation(self):
+        # Updated to only consider non-collectible entities that remain in the environment
         lidar_obs = np.zeros((8, len(self.resource_names)))  # 8 beams, each with [object_type, distance]
         angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
 
@@ -151,10 +157,11 @@ class SimpleEnv(MiniGridEnv):
             return self.resource_names.index("Wall")
 
     def get_inventory_observation(self):
-        inventory_obs = np.zeros(len(self.resource_names), dtype=np.float32)
+        # Updated to only track items that can be added to inventory
+        inventory_obs = np.zeros(len(self.inventory_items), dtype=np.float32)
         for item in self.inventory:
-            if item in self.resource_names:
-                index = self.resource_names.index(item)
+            if item in self.inventory_items:
+                index = self.inventory_items.index(item)
                 inventory_obs[index] += 1
         return inventory_obs
 
@@ -178,74 +185,75 @@ class SimpleEnv(MiniGridEnv):
         terminated = False
         truncated = False
 
-        # Custom action for crafting the sword
+        # Action for crafting the sword
         if action == self.Actions.craft_sword.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
             if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table
-                if "Tree" in self.inventory and "Iron Ore" in self.inventory and not self.sword_crafted:
-                    self.inventory.remove("Tree")
-                    self.inventory.remove("Iron Ore")
-                    self.inventory.append("Iron Sword")
+                if "wood" in self.inventory and "iron" in self.inventory and not self.sword_crafted:
+                    self.inventory.remove("wood")
+                    self.inventory.remove("iron")
+                    self.inventory.append("iron sword")
                     print("Crafted an Iron Sword!")
                     self.sword_crafted = True
-                    # if self.current_episode < self.max_reward_episodes:
-                    reward += 50 # Reward for crafting the sword within the first `max_reward_episodes` episodes
-                    # terminated = True
+                    reward += 50  # Reward for crafting the sword
                     self.cumulative_reward += reward
-
                 return self.get_obs(), reward, terminated, truncated, {}
 
-        # Custom action for opening the chest
+        # Action for opening the chest
         elif action == self.Actions.open_chest.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
             if isinstance(fwd_cell, Box) and fwd_cell.color == 'purple':  # Chest
-                if "Iron Sword" in self.inventory:
-                    self.inventory.append("Treasure")
+                if "iron sword" in self.inventory:
+                    self.inventory.append("treasure")
                     print("Found the treasure! You win!")
-                    reward += 1000  # Large reward for reaching the goal
+                    reward += 1000  # Large reward for finding the treasure
                     self.cumulative_reward += reward
                     terminated = True
-                    truncated = False
-                    return self.get_obs(), reward, terminated, truncated, {}  # End the game
-                # else:
-                #     reward += -0.1  # Penalize for not having the sword
-                # self.cumulative_reward += reward
-                return self.get_obs(), reward, terminated, truncated, {}
+                    return self.get_obs(), reward, terminated, truncated, {}
 
-        # Handle the toggle action for collecting resources
+            return self.get_obs(), reward, terminated, truncated, {}
+
+        # Action toggle for collecting resources
         elif action == self.Actions.toggle.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
-            # Only collect Resource objects, not Box objects
+            # Only allow Resource objects to be collected
             if isinstance(fwd_cell, Resource):
-                if fwd_cell.resource_name not in self.collected_resources_global:
-                    self.collected_resources_global.add(fwd_cell.resource_name)
-                    self.inventory.append(fwd_cell.resource_name)
+                resource_name = fwd_cell.resource_name
+                if resource_name not in self.collected_resources_global:
+                    self.collected_resources_global.add(resource_name)
+                    # Map the resource to its inventory name
+                    if resource_name == "Iron Ore":
+                        self.inventory.append("iron")
+                    elif resource_name == "Silver Ore":
+                        self.inventory.append("silver")
+                    elif resource_name == "Gold Ore":
+                        self.inventory.append("gold")
+                    elif resource_name == "Tree":
+                        self.inventory.append("wood")
+                    # Add additional mappings as needed
+
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
-                    reward += 5 # Reward for collecting the resource for the first time during training
+                    reward += 5  # Reward for collecting the resource
+                    print(f"Collected {resource_name}. Reward: {reward}")
                 else:
-                    reward += -0.5  # Penalize for redundant resource collection
+                    reward += -0.5  # Penalize redundant collection
                 return self.get_obs(), reward, terminated, truncated, {}
 
-            # If it's a Box (like chest or crafting table), don't allow it to be collected
-            elif isinstance(fwd_cell, Box):
-                # The agent cannot collect Box objects (chest or crafting table)
+            # If the object is not collectable (like Chest, Crafting Table, or Wall)
+            elif isinstance(fwd_cell, Box) or fwd_cell.resource_name in ["Chest", "Crafting Table", "Wall"]:
+                print(f"Cannot collect {fwd_cell.resource_name}.")
                 return self.get_obs(), reward, terminated, truncated, {}
 
         # Fallback to the parent class's step function for basic actions (move, turn, etc.)
         self.step_count += 1  # Keep track of step count
         obs, reward_super, terminated, truncated, info = super().step(action)
         reward += reward_super
-        # print (f"info = {info}")
-
-        # Check if the episode has ended
-        # if terminated or truncated:
-        #     print(f"Episode {self.current_episode}: Cumulative Reward = {self.cumulative_reward}")
 
         return self.get_obs(), reward, terminated, truncated, info
 
@@ -296,8 +304,11 @@ class CustomManualControl:
                     self.key_handler(event)
 
     def step(self, action):
-        _, reward, terminated, truncated, _ = self.env.step(action)
+        obs, reward, terminated, truncated, _ = self.env.step(action)
+        print (f"Action = {action})")
+        print (f"obs = {obs}")
         print(f"step={self.env.step_count}, reward={reward:.2f}")
+
 
         if terminated:
             print("terminated!")
