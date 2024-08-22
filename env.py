@@ -24,6 +24,8 @@ class SimpleEnv(MiniGridEnv):
         toggle = 3
         craft_sword = 4
         open_chest = 5
+        approach_crafting_table = 6
+        approach_chest = 7
 
     def __init__(
             self,
@@ -49,10 +51,10 @@ class SimpleEnv(MiniGridEnv):
             self.sword_crafted = False
 
             # Updated the resource_names to reflect only non-collected world items
-            self.resource_names = ["Iron Ore", "Silver Ore", "Platinum Ore", "Gold Ore", "Tree", "Chest", "Crafting Table", "Wall"]
+            self.resource_names = ["iron_ore", "silver_ore", "platinum_ore", "gold_ore", "tree", "chest", "crafting_table", "wall"]
 
             # Inventory for collected items
-            self.inventory_items = ["Iron", "Silver", "Gold", "Platinum", "Wood", "Iron Sword", "Treasure"]
+            self.inventory_items = ["iron", "silver", "gold", "platinum", "wood", "iron_sword", "treasure"]
 
             self.inventory = []
             mission_space = MissionSpace(mission_func=self._gen_mission)
@@ -69,6 +71,7 @@ class SimpleEnv(MiniGridEnv):
             )
 
             self.action_space = gym.spaces.Discrete(len(self.Actions))
+            # print (f"Actions space in the constructor = {self.action_space}")
 
             # Adjusted lidar observation to focus on the non-collected world items
             lidar_shape = (8, len(self.resource_names))  # 8 beams, each detecting one of the 8 possible entities
@@ -88,11 +91,11 @@ class SimpleEnv(MiniGridEnv):
         self.grid.wall_rect(0, 0, width, height)
 
         # Place resources and other objects on the grid
-        self.place_obj(Resource("red", "Iron Ore"), top=(1, 1))
-        self.place_obj(Resource("grey", "Silver Ore"), top=(2, 1))
-        self.place_obj(Resource("purple", "Platinum Ore"), top=(3, 1))
-        self.place_obj(Resource("yellow", "Gold Ore"), top=(4, 1))
-        self.place_obj(Resource("green", "Tree"), top=(5, 1))
+        self.place_obj(Resource("red", "iron_ore"), top=(1, 1))
+        self.place_obj(Resource("grey", "silver_ore"), top=(2, 1))
+        self.place_obj(Resource("purple", "platinum_ore"), top=(3, 1))
+        self.place_obj(Resource("yellow", "gold_ore"), top=(4, 1))
+        self.place_obj(Resource("green", "tree"), top=(5, 1))
         self.place_obj(Box("purple"), top=(6, 1))  # Chest
         self.place_obj(Box("blue"), top=(7, 1))    # Crafting table
 
@@ -152,13 +155,15 @@ class SimpleEnv(MiniGridEnv):
         if isinstance(obj, Resource):
             return self.resource_names.index(obj.resource_name)
         elif isinstance(obj, Box):
-            return self.resource_names.index("Chest" if obj.color == 'purple' else "Crafting Table")
+            return self.resource_names.index("chest" if obj.color == 'purple' else "crafting_table")
         else:
-            return self.resource_names.index("Wall")
+            return self.resource_names.index("wall")
 
     def get_inventory_observation(self):
         # Updated to only track items that can be added to inventory
         inventory_obs = np.zeros(len(self.inventory_items), dtype=np.float32)
+        # print (f"Inventory  = {self.inventory}")
+        # print (f"inventory_items = {self.inventory_items}")
         for item in self.inventory:
             if item in self.inventory_items:
                 index = self.inventory_items.index(item)
@@ -177,16 +182,72 @@ class SimpleEnv(MiniGridEnv):
         # print(f"combined_obs ={combined_obs.shape}")
 
         return combined_obs
+    
+    # utility function to find path to object
+    def find_object_position(self, obj_name):
+        """Find the position of the object in the grid by its name."""
+        for x in range(self.grid.width):
+            for y in range(self.grid.height):
+                obj = self.grid.get(x, y)
+                if isinstance(obj, Resource) and obj.resource_name == obj_name:
+                    return (x, y)
+                elif isinstance(obj, Box) and obj_name == "chest" and obj.color == "purple":
+                    return (x, y)
+                elif isinstance(obj, Box) and obj_name == "crafting_table" and obj.color == "blue":
+                    return (x, y)
+        return None
+    def get_adjacent_pos_and_dir(self, agent_pos, target_pos):
+        """Given the agent's position and the target position, find the adjacent position and direction to face the object."""
+        x, y = target_pos
 
+        # List of adjacent positions and the direction the agent should face to look at the target object
+        adjacent_positions = [
+            ((x - 1, y), 0),  # Left of the object, face right
+            ((x + 1, y), 2),  # Right of the object, face left
+            ((x, y - 1), 3),  # Below the object, face up
+            ((x, y + 1), 1),  # Above the object, face down
+        ]
 
+        # Loop through the possible adjacent positions
+        for adj_pos, adj_dir in adjacent_positions:
+            # Ensure the adjacent cell is valid (empty or movable) and within bounds
+            if 0 <= adj_pos[0] < self.grid.width and 0 <= adj_pos[1] < self.grid.height:
+                adj_cell = self.grid.get(*adj_pos)
+                if adj_cell is None:  # Ensure the adjacent cell is empty
+                    return adj_pos, adj_dir
+
+        return None, None  # Return None if no valid adjacent position is found
+    
     def step(self, action):
         reward = -0.1  # Default time step penalty
         self.cumulative_reward += reward  # Track the cumulative reward
         terminated = False
         truncated = False
 
+        # Custom action for approaching crafting table
+        if action == self.Actions.approach_crafting_table.value:
+            # print("Executing approach_crafting_table action")
+            crafting_table_pos = self.find_object_position("crafting_table")
+            if crafting_table_pos:
+                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, crafting_table_pos)
+                if adj_pos is not None:
+                    self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
+                    self.agent_dir = adj_dir  # Make the agent face the object
+            return self.get_obs(), reward, terminated, truncated, {}
+
+        # Custom action for approaching chest
+        elif action == self.Actions.approach_chest.value:
+            # print("Executing approach_chest action")
+            chest_pos = self.find_object_position("chest")
+            if chest_pos:
+                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, chest_pos)
+                if adj_pos is not None:
+                    self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
+                    self.agent_dir = adj_dir  # Make the agent face the object
+            return self.get_obs(), reward, terminated, truncated, {}
+
         # Action for crafting the sword
-        if action == self.Actions.craft_sword.value:
+        elif action == self.Actions.craft_sword.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
@@ -194,12 +255,12 @@ class SimpleEnv(MiniGridEnv):
                 if "wood" in self.inventory and "iron" in self.inventory and not self.sword_crafted:
                     self.inventory.remove("wood")
                     self.inventory.remove("iron")
-                    self.inventory.append("iron sword")
-                    # print("Crafted an Iron Sword!")
+                    self.inventory.append("iron_sword")
+                    print("Crafted an Iron Sword!")
                     self.sword_crafted = True
                     reward += 50  # Reward for crafting the sword
                     self.cumulative_reward += reward
-                return self.get_obs(), reward, terminated, truncated, {}
+            return self.get_obs(), reward, terminated, truncated, {}
 
         # Action for opening the chest
         elif action == self.Actions.open_chest.value:
@@ -207,14 +268,12 @@ class SimpleEnv(MiniGridEnv):
             fwd_cell = self.grid.get(*fwd_pos)
 
             if isinstance(fwd_cell, Box) and fwd_cell.color == 'purple':  # Chest
-                if "iron sword" in self.inventory:
+                if "iron_sword" in self.inventory:
                     self.inventory.append("treasure")
                     print("Found the treasure! You win!")
                     reward += 1000  # Large reward for finding the treasure
                     self.cumulative_reward += reward
                     terminated = True
-                    return self.get_obs(), reward, terminated, truncated, {}
-
             return self.get_obs(), reward, terminated, truncated, {}
 
         # Action toggle for collecting resources
@@ -222,7 +281,6 @@ class SimpleEnv(MiniGridEnv):
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
-            # Check if fwd_cell is not None before accessing its attributes
             if fwd_cell is None:
                 return self.get_obs(), reward, terminated, truncated, {}
 
@@ -232,37 +290,34 @@ class SimpleEnv(MiniGridEnv):
                 if resource_name not in self.collected_resources_global:
                     self.collected_resources_global.add(resource_name)
                     # Map the resource to its inventory name
-                    if resource_name == "Iron Ore":
+                    if resource_name == "iron_ore":
                         self.inventory.append("iron")
-                    elif resource_name == "Silver Ore":
+                    elif resource_name == "silver_ore":
                         self.inventory.append("silver")
-                    elif resource_name == "Gold Ore":
+                    elif resource_name == "gold_ore":
                         self.inventory.append("gold")
-                    elif resource_name == "Tree":
+                    elif resource_name == "tree":
                         self.inventory.append("wood")
-                    # Add additional mappings as needed
 
+                    # Update the lidar observation and inventory
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
                     reward += 5  # Reward for collecting the resource
-                    # print(f"Collected {resource_name}. Reward: {reward}")
+                    self.cumulative_reward += reward
                 else:
                     reward += -0.5  # Penalize redundant collection
-                return self.get_obs(), reward, terminated, truncated, {}
+            return self.get_obs(), reward, terminated, truncated, {}
 
-            # If the object is not collectable (like Chest, Crafting Table, or Wall)
-            elif isinstance(fwd_cell, Box):
-                if fwd_cell.color in ["purple", "blue"]:
-                    # print(f"Cannot collect {fwd_cell.color}.")
-                    pass
-                return self.get_obs(), reward, terminated, truncated, {}
+        # Handle basic actions (move, turn, etc.) using the parent class
+        if action in [self.Actions.move_forward.value, self.Actions.turn_left.value, self.Actions.turn_right.value]:
+            self.step_count += 1  # Keep track of step count
+            obs, reward_super, terminated, truncated, info = super().step(action)
+            reward += reward_super
+            self.cumulative_reward += reward  # Update cumulative reward
+            return self.get_obs(), reward, terminated, truncated, info
 
-        # Fallback to the parent class's step function for basic actions (move, turn, etc.)
-        self.step_count += 1  # Keep track of step count
-        obs, reward_super, terminated, truncated, info = super().step(action)
-        reward += reward_super
-
-        return self.get_obs(), reward, terminated, truncated, info
-
+        # Handle unknown actions
+        else:
+            raise ValueError(f"Unknown action: {action}")
    
     def reset(self, seed=None, **kwargs):
         self.np_random, seed = seeding.np_random(seed)
@@ -313,14 +368,14 @@ class CustomManualControl:
         obs, reward, terminated, truncated, _ = self.env.step(action)
         # print (f"Action = {action})")
         # print (f"obs = {obs}")
-        # print(f"step={self.env.step_count}, reward={reward:.2f}")
+        print(f"step={self.env.step_count}, reward={reward:.2f}")
 
 
         if terminated:
-            # print("terminated!")
+            print("terminated!")
             self.reset(self.seed)
         elif truncated:
-            # print("truncated!")
+            print("truncated!")
             self.reset(self.seed)
         else:
             self.env.render()
@@ -348,7 +403,9 @@ class CustomManualControl:
             "space": SimpleEnv.Actions.toggle.value,
             "c": SimpleEnv.Actions.craft_sword.value,  # 'c' for craft sword
             "o": SimpleEnv.Actions.open_chest.value,   # 'o' for open chest
-        }
+            "t": SimpleEnv.Actions.approach_crafting_table.value,  # 't' for approach crafting table
+            "h": SimpleEnv.Actions.approach_chest.value,  # 'h' for approach chest        
+            }
 
         if key in key_to_action:
             action = key_to_action[key]
