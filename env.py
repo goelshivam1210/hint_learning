@@ -195,7 +195,7 @@ class SimpleEnv(MiniGridEnv):
                     self.inventory.remove("wood")
                     self.inventory.remove("iron")
                     self.inventory.append("iron sword")
-                    print("Crafted an Iron Sword!")
+                    # print("Crafted an Iron Sword!")
                     self.sword_crafted = True
                     reward += 50  # Reward for crafting the sword
                     self.cumulative_reward += reward
@@ -222,6 +222,10 @@ class SimpleEnv(MiniGridEnv):
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
+            # Check if fwd_cell is not None before accessing its attributes
+            if fwd_cell is None:
+                return self.get_obs(), reward, terminated, truncated, {}
+
             # Only allow Resource objects to be collected
             if isinstance(fwd_cell, Resource):
                 resource_name = fwd_cell.resource_name
@@ -240,14 +244,16 @@ class SimpleEnv(MiniGridEnv):
 
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
                     reward += 5  # Reward for collecting the resource
-                    print(f"Collected {resource_name}. Reward: {reward}")
+                    # print(f"Collected {resource_name}. Reward: {reward}")
                 else:
                     reward += -0.5  # Penalize redundant collection
                 return self.get_obs(), reward, terminated, truncated, {}
 
             # If the object is not collectable (like Chest, Crafting Table, or Wall)
-            elif isinstance(fwd_cell, Box) or fwd_cell.resource_name in ["Chest", "Crafting Table", "Wall"]:
-                print(f"Cannot collect {fwd_cell.resource_name}.")
+            elif isinstance(fwd_cell, Box):
+                if fwd_cell.color in ["purple", "blue"]:
+                    # print(f"Cannot collect {fwd_cell.color}.")
+                    pass
                 return self.get_obs(), reward, terminated, truncated, {}
 
         # Fallback to the parent class's step function for basic actions (move, turn, etc.)
@@ -278,7 +284,7 @@ class SimpleEnv(MiniGridEnv):
         result = super().render()
 
         # Display the agent's inventory on the screen (in the terminal or add GUI)
-        print(f"Inventory: {', '.join(self.inventory)}")
+        # print(f"Inventory: {', '.join(self.inventory)}")
 
         return result
 
@@ -305,16 +311,16 @@ class CustomManualControl:
 
     def step(self, action):
         obs, reward, terminated, truncated, _ = self.env.step(action)
-        print (f"Action = {action})")
-        print (f"obs = {obs}")
-        print(f"step={self.env.step_count}, reward={reward:.2f}")
+        # print (f"Action = {action})")
+        # print (f"obs = {obs}")
+        # print(f"step={self.env.step_count}, reward={reward:.2f}")
 
 
         if terminated:
-            print("terminated!")
+            # print("terminated!")
             self.reset(self.seed)
         elif truncated:
-            print("truncated!")
+            # print("truncated!")
             self.reset(self.seed)
         else:
             self.env.render()
