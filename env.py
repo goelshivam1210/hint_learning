@@ -59,6 +59,7 @@ class SimpleEnv(MiniGridEnv):
             self.inventory = []
             mission_space = MissionSpace(mission_func=self._gen_mission)
 
+            self.crafted_sword_episodes = 0
             # if max_steps is None:
             #     max_steps = 4 * size**2
             if max_steps is None:
@@ -268,7 +269,11 @@ class SimpleEnv(MiniGridEnv):
                     self.inventory.append("iron_sword")
                     print("Crafted an Iron Sword!")
                     self.sword_crafted = True
-                    reward += 50  # Reward for crafting the sword
+                    self.crafted_sword_episodes += 1
+                    if self.crafted_sword_episodes < self.max_reward_episodes:
+                        reward += 50  # Reward for crafting the sword
+                    else:
+                        reward += 5
                     self.cumulative_reward += reward
             return self.get_obs(), reward, terminated, truncated, {}
 
