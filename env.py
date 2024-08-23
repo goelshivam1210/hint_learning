@@ -33,7 +33,7 @@ class SimpleEnv(MiniGridEnv):
             agent_start_pos=(1, 1),
             agent_start_dir=0,
             max_steps: int | None = None,
-            max_reward_episodes: int = 100,  # Number of episodes with sword reward
+            max_reward_episodes: int = 50,  # Number of episodes with sword reward
             **kwargs,
         ):
             self.step_count = 0
@@ -44,11 +44,10 @@ class SimpleEnv(MiniGridEnv):
             self.max_reward_episodes = max_reward_episodes  # Threshold for giving sword reward
             self.current_episode = 0  # Track the current episode
 
+            self.sword_crafted = False
+
             # Track which resources have been collected during the entire training
             self.collected_resources_global = set()
-
-            # Tracking if the sword has been crafted this episode
-            self.sword_crafted = False
 
             # Updated the resource_names to reflect only non-collected world items
             self.resource_names = ["iron_ore", "silver_ore", "platinum_ore", "gold_ore", "tree", "chest", "crafting_table", "wall"]
@@ -267,13 +266,13 @@ class SimpleEnv(MiniGridEnv):
                     self.inventory.remove("wood")
                     self.inventory.remove("iron")
                     self.inventory.append("iron_sword")
-                    print("Crafted an Iron Sword!")
+                    # print("Crafted an Iron Sword!")
                     self.sword_crafted = True
                     self.crafted_sword_episodes += 1
                     if self.crafted_sword_episodes < self.max_reward_episodes:
-                        reward += 50  # Reward for crafting the sword
+                        reward = 50  # Reward for crafting the sword
                     else:
-                        reward += 5
+                        reward = 5
                     self.cumulative_reward += reward
             return self.get_obs(), reward, terminated, truncated, {}
 
@@ -285,8 +284,9 @@ class SimpleEnv(MiniGridEnv):
             if isinstance(fwd_cell, Box) and fwd_cell.color == 'purple':  # Chest
                 if "iron_sword" in self.inventory:
                     self.inventory.append("treasure")
-                    print("Found the treasure! You win!")
-                    reward += 1000  # Large reward for finding the treasure
+                    # print("Found the treasure! You win!")
+                    print("Reached Goal State")
+                    reward = 1000  # Large reward for finding the treasure
                     self.cumulative_reward += reward
                     terminated = True
             return self.get_obs(), reward, terminated, truncated, {}
@@ -315,10 +315,10 @@ class SimpleEnv(MiniGridEnv):
 
                     # Update the lidar observation and inventory
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
-                    reward += 1  # Reward for collecting the resource
+                    reward = 1  # Reward for collecting the resource
                     self.cumulative_reward += reward
                 else:
-                    reward += 0.0  # Penalize redundant collection within the same episode
+                    reward = 0.0  # Penalize redundant collection within the same episode
             return self.get_obs(), reward, terminated, truncated, {}
 
         # Handle basic actions (move, turn, etc.) using the parent class
@@ -334,6 +334,8 @@ class SimpleEnv(MiniGridEnv):
             raise ValueError(f"Unknown action: {action}")
    
     def reset(self, seed=None, **kwargs):
+        # print (f"Cumulative reward: {self.cumulative_reward}")
+        # print (f"episodes for crafting sword = {self.crafted_sword_episodes}")
         self.np_random, seed = seeding.np_random(seed)
         self.inventory = []
         self.sword_crafted = False  # Reset sword crafting per episode
