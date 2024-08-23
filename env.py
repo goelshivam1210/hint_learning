@@ -59,8 +59,10 @@ class SimpleEnv(MiniGridEnv):
             self.inventory = []
             mission_space = MissionSpace(mission_func=self._gen_mission)
 
+            # if max_steps is None:
+            #     max_steps = 4 * size**2
             if max_steps is None:
-                max_steps = 4 * size**2
+                max_steps = 300
 
             super().__init__(
                 mission_space=mission_space,
@@ -121,32 +123,40 @@ class SimpleEnv(MiniGridEnv):
             self.place_agent()  # Place the agent randomly if no start position is specified
 
     def get_lidar_observation(self):
-        # Updated to only consider non-collectible entities that remain in the environment
-        lidar_obs = np.zeros((8, len(self.resource_names)))  # 8 beams, each with [object_type, distance]
+        # Initialize the lidar observation matrix: 8 beams x number of object types
+        lidar_obs = np.zeros((8, len(self.resource_names)), dtype=np.float32)
+        
+        # Define the angles for each beam
         angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
 
+        # Loop through each beam
         for i, angle in enumerate(angles):
-            min_dist = float('inf')
-            closest_entity_idx = -1
+            x, y = self.agent_pos  # Start position of the agent
+            x_ratio, y_ratio = np.cos(angle), np.sin(angle)
 
-            for x in range(self.grid.width):
-                for y in range(self.grid.height):
-                    obj = self.grid.get(x, y)
-                    if obj is not None:
-                        obj_pos = np.array([x, y])
-                        agent_pos = np.array(self.agent_pos)
-                        vec_to_obj = obj_pos - agent_pos
-                        dist_to_obj = np.linalg.norm(vec_to_obj)
-                        angle_to_obj = np.arctan2(vec_to_obj[1], vec_to_obj[0])
+            # Continue shooting the beam until it hits a wall or exits the grid
+            for beam_range in range(1, self.grid.width + 1):  # Maximum range based on the grid size
+                x_obj = int(x + beam_range * x_ratio)
+                y_obj = int(y + beam_range * y_ratio)
 
-                        angle_diff = (angle_to_obj - angle + np.pi) % (2 * np.pi) - np.pi
+                # Check if the beam is out of bounds
+                if not (0 <= x_obj < self.grid.width and 0 <= y_obj < self.grid.height):
+                    break  # Beam has exited the grid
 
-                        if abs(angle_diff) <= np.pi / 8 and dist_to_obj < min_dist:
-                            min_dist = dist_to_obj
-                            closest_entity_idx = self.get_entity_index(obj)
+                # Get the object at the current beam position
+                obj = self.grid.get(x_obj, y_obj)
 
-            if closest_entity_idx != -1:
-                lidar_obs[i, closest_entity_idx] = min_dist / self.grid.width  # Normalize distance by grid width
+                if obj is not None:
+                    # Get the index of the detected object
+                    closest_entity_idx = self.get_entity_index(obj)
+                    
+                    # Record the distance in the corresponding beam and object type channel
+                    if lidar_obs[i, closest_entity_idx] == 0:  # Only update if no previous object was detected on this beam
+                        lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize the distance
+
+                # Stop the beam if the object is a wall (can_occlude)
+                    if obj.type == "wall":  # Checking if the object is a wall by its type
+                        break  # Stop the beam as it hit a wall
 
         return lidar_obs
 
@@ -276,7 +286,6 @@ class SimpleEnv(MiniGridEnv):
                     terminated = True
             return self.get_obs(), reward, terminated, truncated, {}
 
-        # Action toggle for collecting resources
         elif action == self.Actions.toggle.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
@@ -301,10 +310,10 @@ class SimpleEnv(MiniGridEnv):
 
                     # Update the lidar observation and inventory
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
-                    reward += 5  # Reward for collecting the resource
+                    reward += 1  # Reward for collecting the resource
                     self.cumulative_reward += reward
                 else:
-                    reward += -0.5  # Penalize redundant collection
+                    reward += 0.0  # Penalize redundant collection within the same episode
             return self.get_obs(), reward, terminated, truncated, {}
 
         # Handle basic actions (move, turn, etc.) using the parent class
@@ -324,10 +333,12 @@ class SimpleEnv(MiniGridEnv):
         self.inventory = []
         self.sword_crafted = False  # Reset sword crafting per episode
 
+        # Reset per-episode resource collection
+        self.collected_resources_global = set()
+
         # Increase the episode count
         self.current_episode += 1
         self.cumulative_reward = 0
-
 
         self._gen_grid(self.width, self.height)
         self.place_agent()
@@ -366,9 +377,10 @@ class CustomManualControl:
 
     def step(self, action):
         obs, reward, terminated, truncated, _ = self.env.step(action)
-        # print (f"Action = {action})")
-        # print (f"obs = {obs}")
+        print (f"Action = {action})")
+        print (f"obs = {obs}")
         print(f"step={self.env.step_count}, reward={reward:.2f}")
+        print (f"self.cumulated reward = {self.env.cumulative_reward:.2f}")
 
 
         if terminated:
