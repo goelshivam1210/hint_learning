@@ -26,6 +26,8 @@ class SimpleEnv(MiniGridEnv):
         open_chest = 5
         approach_crafting_table = 6
         approach_chest = 7
+        approach_tree = 8
+        approach_iron_ore = 9
 
     def __init__(
             self,
@@ -59,6 +61,13 @@ class SimpleEnv(MiniGridEnv):
             mission_space = MissionSpace(mission_func=self._gen_mission)
 
             self.crafted_sword_episodes = 0
+            self.collected_resource_episodes = {
+                "tree": 0,
+                "iron_ore": 0,
+                "silver_ore": 0,
+                "gold_ore": 0,
+                "platinum_ore": 0
+            }
             # if max_steps is None:
             #     max_steps = 4 * size**2
             if max_steps is None:
@@ -234,6 +243,28 @@ class SimpleEnv(MiniGridEnv):
         terminated = False
         truncated = False
 
+        # Custom action for approaching tree
+        if action == self.Actions.approach_tree.value:
+            # print("Executing approach_tree action")
+            crafting_table_pos = self.find_object_position("tree")
+            if crafting_table_pos:
+                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, crafting_table_pos)
+                if adj_pos is not None:
+                    self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
+                    self.agent_dir = adj_dir  # Make the agent face the object
+            return self.get_obs(), reward, terminated, truncated, {}
+
+        # Custom action for approaching iron_ore
+        if action == self.Actions.approach_iron_ore.value:
+            # print("Executing approach_iron_ore action")
+            crafting_table_pos = self.find_object_position("iron_ore")
+            if crafting_table_pos:
+                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, crafting_table_pos)
+                if adj_pos is not None:
+                    self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
+                    self.agent_dir = adj_dir  # Make the agent face the object
+            return self.get_obs(), reward, terminated, truncated, {}
+
         # Custom action for approaching crafting table
         if action == self.Actions.approach_crafting_table.value:
             # print("Executing approach_crafting_table action")
@@ -315,7 +346,11 @@ class SimpleEnv(MiniGridEnv):
 
                     # Update the lidar observation and inventory
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
-                    reward = 1  # Reward for collecting the resource
+                    # reward = 1  # Reward for collecting the resource
+                    if self.collected_resource_episodes[resource_name] < self.max_reward_episodes:
+                        reward = 10  # Reward for crafting the sword
+                    else:
+                        reward = 1
                     self.cumulative_reward += reward
                 else:
                     reward = 0.0  # Penalize redundant collection within the same episode
