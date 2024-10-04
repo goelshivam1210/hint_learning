@@ -10,6 +10,10 @@ import pygame
 import numpy as np
 
 
+class RewardType(Enum):
+    DENSE = "dense"
+    SPARSE = "sparse"
+
 class Resource(Ball):
     """Custom Ball object with a resource name"""
     def __init__(self, color, resource_name):
@@ -34,6 +38,7 @@ class SimpleEnv(MiniGridEnv):
             size=12,
             agent_start_pos=(1, 1),
             agent_start_dir=0,
+            reward_type: RewardType = RewardType.DENSE,
             max_steps: int | None = None,
             max_reward_episodes: int = 50,  # Number of episodes with sword reward
             **kwargs,
@@ -42,6 +47,7 @@ class SimpleEnv(MiniGridEnv):
             self.cumulative_reward = 0
             self.agent_start_pos = agent_start_pos
             self.agent_start_dir = agent_start_dir
+            self.reward_type = reward_type
 
             self.max_reward_episodes = max_reward_episodes  # Threshold for giving sword reward
             self.current_episode = 0  # Track the current episode
@@ -300,11 +306,13 @@ class SimpleEnv(MiniGridEnv):
                     # print("Crafted an Iron Sword!")
                     self.sword_crafted = True
                     self.crafted_sword_episodes += 1
-                    if self.crafted_sword_episodes < self.max_reward_episodes:
-                        reward = 50  # Reward for crafting the sword
-                    else:
-                        reward = 5
-                    self.cumulative_reward += reward
+                    if self.reward_type == RewardType.DENSE:
+                        if self.crafted_sword_episodes < self.max_reward_episodes:
+                            reward = 50  # Reward for crafting the sword
+                        else:
+                            reward = 5
+                    else:  # SPARSE reward: No reward until the final goal state
+                        reward = 0
             return self.get_obs(), reward, terminated, truncated, {}
 
         # Action for opening the chest
@@ -317,8 +325,10 @@ class SimpleEnv(MiniGridEnv):
                     self.inventory.append("treasure")
                     # print("Found the treasure! You win!")
                     print("Reached Goal State")
-                    reward = 1000  # Large reward for finding the treasure
-                    self.cumulative_reward += reward
+                    if self.reward_type == RewardType.SPARSE:
+                        reward = 1000  # Large reward for finding the treasure (sparse reward)
+                    else:
+                        reward = 1000  # Large reward for finding the treasure (dense reward)
                     terminated = True
             return self.get_obs(), reward, terminated, truncated, {}
 

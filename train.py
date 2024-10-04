@@ -2,15 +2,24 @@ import torch
 import numpy as np
 import gymnasium as gym
 from torch.utils.tensorboard import SummaryWriter
-
 import tianshou as ts
 from tianshou.utils.net.common import Net
-
 from env import SimpleEnv
+from env import RewardType
+from env_wrapper import EnvWrapper  # Import the wrapper we defined earlier
+from gymnasium.spaces import Box, Discrete
 
-from gymnasium.spaces import Box, Discrete, MultiBinary, MultiDiscrete
-
-
+# Define example hint constraints
+hint_constraints = [
+    "inventory(titanium_sword) > 0",
+    "inventory(titanium_sword) = 0",
+    "holding(titanium_sword)",
+    "not holding(titanium_sword)",
+    "inventory(titanium) > 0",
+    "inventory(titanium) = 0",
+    "facing(titanium_ore)",
+    "not facing(titanium_ore)"
+]
 
 # Hyperparameters
 lr, epoch, batch_size = 1e-3, 10, 64
@@ -27,7 +36,9 @@ device = torch.device("mps") if torch.backends.mps.is_available() else torch.dev
 
 # Step 1: Create environment wrappers for Tianshou
 def make_env():
-    return SimpleEnv(render_mode=None)
+    env = SimpleEnv(render_mode=None, reward_type=RewardType.SPARSE)
+    wrapped_env = EnvWrapper(env, hint_constraints)  # Wrap the environment with hint constraints
+    return wrapped_env
 
 # Step 2: Create vectorized environments for parallel processing
 train_envs = ts.env.DummyVectorEnv([make_env for _ in range(8)])  # 8 parallel environments for training
@@ -37,36 +48,24 @@ test_envs = ts.env.DummyVectorEnv([make_env for _ in range(8)])   # 8 parallel e
 dummy_env = make_env()  # Create a single instance of the environment for shape checking
 obs_space = dummy_env.observation_space  # Fetch observation space from a single env instance
 action_space = dummy_env.action_space  # Fetch action space from a single env instance
-# print (f"Action space type = {type(action_space)}")
-# print (f"Observation space = {type(obs_space)}")
-# print (f"Action space = {action_space}")
 
+lidar_shape = obs_space.shape  # Now includes the augmented state (lidar + constraints)
 
-
-lidar_shape = obs_space['lidar'].shape
-inventory_shape = obs_space['inventory'].shape
-
-    # Calculate the combined state shape by summing the dimensions of lidar and inventory
-state_shape = lidar_shape
 # Handle discrete and continuous action spaces
 action_shape = action_space.n  # For Discrete, treat it as a single value
 
-
-print("State shape: ", state_shape)
+print("State shape: ", lidar_shape)
 print("Action shape: ", action_shape)
 
 # Define the network
-net = Net(state_shape=state_shape, action_shape=action_shape, hidden_sizes=[128, 128, 128], device=device)
+net = Net(state_shape=lidar_shape, action_shape=action_shape, hidden_sizes=[128, 128, 128], device=device)
 optim = torch.optim.Adam(net.parameters(), lr=lr)
-
-print(f"Type of action space: {isinstance(action_space, Discrete)} ")
-print (f"action space = {action_space}")
 
 # Policy setup (DQN)
 policy = ts.policy.DQNPolicy(
     model=net,
     optim=optim,
-    discount_factor=gamma, 
+    discount_factor=gamma,
     estimation_step=n_step,
     target_update_freq=target_freq,
     action_space=action_space
