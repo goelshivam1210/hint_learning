@@ -1,19 +1,32 @@
 import numpy as np
 from gymnasium import Wrapper
 import gymnasium as gym
+import yaml
+from env import Resource
 
 class EnvWrapper(Wrapper):
-    def __init__(self, env, constraints):
+    def __init__(self, env, constraint_file):
         super(EnvWrapper, self).__init__(env)
-        self.constraints = constraints
+        self.constraints = self.load_constraints(constraint_file)
 
-        # Adjust the observation space to account for the augmented state
-        original_obs_shape = self.env.observation_space["lidar"].shape[0] + self.env.observation_space["inventory"].shape[0]
+        # Calculate the shape of the original observation space
+        lidar_shape = np.prod(self.env.observation_space["lidar"].shape)  # Flatten lidar
+        inventory_shape = self.env.observation_space["inventory"].shape[0]
         constraint_shape = len(self.constraints)
+
+        # Correct the total observation shape: lidar (flattened) + inventory + constraints
+        total_obs_shape = lidar_shape + inventory_shape + constraint_shape
         
+        # Update observation space to account for the flattened shape and constraints
         self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(original_obs_shape + constraint_shape,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(total_obs_shape,), dtype=np.float32
         )
+
+    def load_constraints(self, filepath):
+        """Load the constraints from a YAML file."""
+        with open(filepath, 'r') as file:
+            data = yaml.safe_load(file)
+            return data['hint_constraints']
 
     def encode_constraints(self):
         """Encode hint constraints as a one-hot vector dynamically."""
@@ -64,7 +77,14 @@ class EnvWrapper(Wrapper):
         # Handle facing constraints
         elif "facing" in parts[0]:
             target = parts[0].split("(")[1].replace(")", "")
-            result = self.env.get_entity_index(target) == self.env.facing
+            # We need to check whether the agent is facing the target object
+            # Using the agent's position and direction
+            fwd_pos = self.env.front_pos  # This is the position the agent is facing
+            obj_in_front = self.env.grid.get(*fwd_pos)
+            if obj_in_front is not None and isinstance(obj_in_front, Resource) and obj_in_front.resource_name == target:
+                result = True
+            else:
+                result = False
 
             # Return the negated result if the constraint was negated
             return not result if is_negated else result
@@ -85,11 +105,24 @@ class EnvWrapper(Wrapper):
         return augmented_state, reward, done, truncated, info
 
     def _augment_state_with_constraints(self, state):
-        """Augment the current state with the hint constraint encoding."""
-        lidar_obs = state["lidar"].flatten().astype(np.float32)
-        inventory_obs = state["inventory"].astype(np.float32)
+        # Assuming the first part of the state is lidar and the second part is inventory
+        lidar_len = 8 * len(self.env.resource_names)  # 8 beams * number of resource types
+        inventory_len = len(self.env.inventory_items)
+
+        # Slicing the flat state array
+        lidar_obs = state[:lidar_len].flatten().astype(np.float32)
+        inventory_obs = state[lidar_len:lidar_len + inventory_len].astype(np.float32)
+
+        # Debug prints to verify shapes
+        # print(f"Debug: Lidar Observation Length: {lidar_len}, Inventory Observation Length: {inventory_len}")
+        # print(f"Debug: Lidar Obs Shape: {lidar_obs.shape}, Inventory Obs Shape: {inventory_obs.shape}")
+
+        # Encode constraints as a one-hot vector
         constraint_encoding = self.encode_constraints()
+        # print(f"Debug: Constraints Encoding Shape: {constraint_encoding.shape}")
 
         # Concatenate the original state with the constraint encoding
         augmented_state = np.concatenate((lidar_obs, inventory_obs, constraint_encoding), axis=-1)
+        # print(f"Debug: Augmented State Shape: {augmented_state.shape}")
+
         return augmented_state

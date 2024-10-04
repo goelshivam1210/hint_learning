@@ -90,12 +90,26 @@ class SimpleEnv(MiniGridEnv):
             self.action_space = gym.spaces.Discrete(len(self.Actions))
             # print (f"Actions space in the constructor = {self.action_space}")
 
+                    # Initialize lidar and inventory observation shapes
+            lidar_shape = (8, len(self.resource_names))  # 8 lidar beams, each detecting one of the entities
+            inventory_shape = (len(self.inventory_items),)
+
+            # Set up observation space based on lidar and inventory
+            self.observation_space = gym.spaces.Dict({
+                "lidar": gym.spaces.Box(low=0, high=1, shape=lidar_shape, dtype=np.float32),
+                "inventory": gym.spaces.MultiDiscrete([10] * len(self.inventory_items))  # Max 10 of each item
+            })
+
+            # print(f"Observation space set up: {self.observation_space}")
+
             # Adjusted lidar observation to focus on the non-collected world items
             lidar_shape = (8, len(self.resource_names))  # 8 beams, each detecting one of the 8 possible entities
             self.observation_space = gym.spaces.Dict({
                 "lidar": gym.spaces.Box(low=0, high=1, shape=lidar_shape, dtype=np.float32),
                 "inventory": gym.spaces.MultiDiscrete([10] * len(self.inventory_items))  # Maximum 10 of each item in inventory
+
             })
+
 
 
     @staticmethod
@@ -199,12 +213,13 @@ class SimpleEnv(MiniGridEnv):
         lidar_obs = self.get_lidar_observation().flatten().astype(np.float32)   # Flatten lidar
         inventory_obs = self.get_inventory_observation().astype(np.float32)
 
-        # print (f"inventory ={inventory_obs}")
-        # print(f"lidar_obs ={lidar_obs}")
+        # Debugging prints for lidar and inventory shapes
+        # print(f"Debug: Lidar Observation Shape: {lidar_obs.shape}")
+        # print(f"Debug: Inventory Observation Shape: {inventory_obs.shape}")
 
         # Concatenate lidar and inventory observations
         combined_obs = np.concatenate((lidar_obs, inventory_obs), axis=0).astype(np.float32)
-        # print(f"combined_obs ={combined_obs.shape}")
+        # print(f"Debug: Combined Observation Shape: {combined_obs.shape}")
 
         return combined_obs
     
@@ -324,7 +339,7 @@ class SimpleEnv(MiniGridEnv):
                 if "iron_sword" in self.inventory:
                     self.inventory.append("treasure")
                     # print("Found the treasure! You win!")
-                    print("Reached Goal State")
+                    # print("Reached Goal State")
                     if self.reward_type == RewardType.SPARSE:
                         reward = 1000  # Large reward for finding the treasure (sparse reward)
                     else:

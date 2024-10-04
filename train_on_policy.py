@@ -1,8 +1,8 @@
-from datetime import datetime 
+from datetime import datetime
 import os
+import yaml  # Import the YAML library
 import torch
 import numpy as np
-import gymnasium as gym
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import DummyVectorEnv
 from tianshou.policy import PPOPolicy
@@ -12,13 +12,13 @@ from tianshou.utils.net.discrete import Actor, Critic
 from torch.utils.tensorboard import SummaryWriter
 from tianshou.utils import TensorboardLogger
 
-# Import your environment
+# Import your environment and wrapper
 from env import SimpleEnv
+from env_wrapper import EnvWrapper
 
 # Hyperparameters
 lr = 1e-5
 gamma = 0.99
-epoch = 1000
 epoch = 1000
 batch_size = 64
 n_step = 5
@@ -35,22 +35,22 @@ convergence_window = 10  # Last 10 evaluations
 # Device setup
 device = torch.device("cpu") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Create environment
+# Create environment and wrap with constraints
 def make_env():
-    return SimpleEnv(render_mode=None)
+    env = SimpleEnv(render_mode=None)  # Create the base environment
+    wrapped_env = EnvWrapper(env, "constraints.yaml")  # Wrap with constraint handler
+    return wrapped_env
 
 train_envs = DummyVectorEnv([make_env for _ in range(8)])  # 8 parallel environments for training
 test_envs = DummyVectorEnv([make_env for _ in range(8)])   # 8 parallel environments for testing
 
 # Observation and action space
 dummy_env = make_env()
-obs_space = dummy_env.observation_space
 action_space = dummy_env.action_space
+obs_space = dummy_env.observation_space
+# print (f"observation space = ", obs_space)
 
-# Extract observation space for lidar
-lidar_shape = obs_space['lidar'].shape
-inventory_shape = obs_space['inventory'].shape
-combined_shape = (lidar_shape[0] * lidar_shape[1] + inventory_shape[0],)  # Flatten lidar and add inventory
+combined_shape = obs_space.shape
 
 # Define the Actor and Critic networks for PPO
 net = Net(combined_shape, hidden_sizes=[256, 64], device=device)
