@@ -1,6 +1,5 @@
 from datetime import datetime
 import os
-import yaml  # Import the YAML library
 import torch
 import numpy as np
 from tianshou.data import Collector, VectorReplayBuffer
@@ -11,8 +10,9 @@ from tianshou.utils.net.common import Net, ActorCritic
 from tianshou.utils.net.discrete import Actor, Critic
 from torch.utils.tensorboard import SummaryWriter
 from tianshou.utils import TensorboardLogger
+import yaml
 
-# Import your environment and wrapper
+# Import environment and wrapper
 from env import SimpleEnv
 from env_wrapper import EnvWrapper
 
@@ -35,11 +35,27 @@ convergence_window = 10  # Last 10 evaluations
 # Device setup
 device = torch.device("cpu") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Create environment and wrap with constraints
+# Flag for using the wrapper or not
+USE_WRAPPER = False  # Change this flag to toggle between wrapped or unwrapped environment
+
+# Utility function to flatten dict observation space for the unwrapped environment
+def flatten_obs_space(obs_dict):
+    if isinstance(obs_dict, dict) and 'lidar' in obs_dict and 'inventory' in obs_dict:
+        lidar_obs = obs_dict['lidar'].flatten()
+        inventory_obs = obs_dict['inventory']
+        return np.concatenate([lidar_obs, inventory_obs], axis=-1)
+    else:
+        # If it's already flattened, return it as is
+        return obs_dict
+
+# Create environment and wrap with constraints based on the flag
 def make_env():
     env = SimpleEnv(render_mode=None)  # Create the base environment
-    wrapped_env = EnvWrapper(env, "constraints.yaml")  # Wrap with constraint handler
-    return wrapped_env
+    if USE_WRAPPER:
+        wrapped_env = EnvWrapper(env, "constraints.yaml")  # Wrap with constraint handler
+        return wrapped_env
+    else:
+        return env  # Return the base environment without wrapping
 
 train_envs = DummyVectorEnv([make_env for _ in range(8)])  # 8 parallel environments for training
 test_envs = DummyVectorEnv([make_env for _ in range(8)])   # 8 parallel environments for testing
@@ -47,10 +63,18 @@ test_envs = DummyVectorEnv([make_env for _ in range(8)])   # 8 parallel environm
 # Observation and action space
 dummy_env = make_env()
 action_space = dummy_env.action_space
-obs_space = dummy_env.observation_space
-# print (f"observation space = ", obs_space)
 
-combined_shape = obs_space.shape
+# Handling the observation space shape for wrapped and unwrapped cases
+if USE_WRAPPER:
+    obs_space = dummy_env.observation_space
+    combined_shape = obs_space.shape
+else:
+    # Flatten observation space from dict to a vector for the unwrapped case
+    obs_sample = dummy_env.reset()[0]  # Sample an observation to infer the shape
+    flattened_obs = flatten_obs_space(obs_sample)
+    combined_shape = flattened_obs.shape  # Get the flattened observation shape
+
+print(f"Observation space shape: {combined_shape}")
 
 # Define the Actor and Critic networks for PPO
 net = Net(combined_shape, hidden_sizes=[256, 64], device=device)
