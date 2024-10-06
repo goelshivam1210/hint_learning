@@ -32,8 +32,6 @@ class SimpleEnv(MiniGridEnv):
         approach_chest = 7
         approach_tree = 8
         approach_iron_ore = 9
-        approach_tree = 8
-        approach_iron_ore = 9
 
     def __init__(
             self,
