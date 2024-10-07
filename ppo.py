@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
+from attention_net_own import AttentionNet 
+
 
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -19,10 +21,12 @@ class RolloutBuffer:
         del self.rewards[:]
         del self.is_terminals[:]
 
-
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, state_dim, action_dim, attention_net=None):
         super(ActorCritic, self).__init__()
+        
+        # Attention network (optional)
+        self.attention_net = attention_net
         
         # Actor network for discrete action space
         self.actor = nn.Sequential(
@@ -46,14 +50,22 @@ class ActorCritic(nn.Module):
     def forward(self):
         raise NotImplementedError
     
-    def act(self, state):
+    def act(self, state, constraints=None):
+        # Apply attention before actor if attention is being used
+        if self.attention_net and constraints is not None:
+            state = self.attention_net(state, constraints)
+        
         action_probs = self.actor(state)
         dist = Categorical(action_probs)
         action = dist.sample()
         action_logprob = dist.log_prob(action)
         return action.detach(), action_logprob.detach()
     
-    def evaluate(self, state, action):
+    def evaluate(self, state, action, constraints=None):
+        # Apply attention before critic and actor if attention is being used
+        if self.attention_net and constraints is not None:
+            state = self.attention_net(state, constraints)
+        
         action_probs = self.actor(state)
         dist = Categorical(action_probs)
 
@@ -63,30 +75,32 @@ class ActorCritic(nn.Module):
         
         return action_logprobs, state_value, dist_entropy
 
-
 class PPO:
-    def __init__(self, state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip):
+    def __init__(self, state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, use_attention=False, attention_net=None):
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
+        self.use_attention = use_attention
         
         self.buffer = RolloutBuffer()
 
-        self.policy = ActorCritic(state_dim, action_dim).to(device)
+        # Use attention if specified
+        self.policy = ActorCritic(state_dim, action_dim, attention_net=attention_net if use_attention else None).to(device)
+        
         self.optimizer = torch.optim.Adam([
-                        {'params': self.policy.actor.parameters(), 'lr': lr_actor},
-                        {'params': self.policy.critic.parameters(), 'lr': lr_critic}
-                    ])
+            {'params': self.policy.actor.parameters(), 'lr': lr_actor},
+            {'params': self.policy.critic.parameters(), 'lr': lr_critic}
+        ])
 
-        self.policy_old = ActorCritic(state_dim, action_dim).to(device)
+        self.policy_old = ActorCritic(state_dim, action_dim, attention_net=attention_net if use_attention else None).to(device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
 
-    def select_action(self, state):
+    def select_action(self, state, constraints=None):
         with torch.no_grad():
             state = torch.FloatTensor(state).to(device)
-            action, action_logprob = self.policy_old.act(state)
+            action, action_logprob = self.policy_old.act(state, constraints)  # Pass constraints
         
         self.buffer.states.append(state)
         self.buffer.actions.append(action)
@@ -116,6 +130,7 @@ class PPO:
 
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
+            # In case you want to use constraints for the update, pass them here
             logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
 
             state_values = torch.squeeze(state_values)
@@ -150,3 +165,50 @@ class PPO:
     def load(self, checkpoint_path):
         self.policy_old.load_state_dict(torch.load(checkpoint_path))
         self.policy.load_state_dict(torch.load(checkpoint_path))
+
+
+
+
+# class ActorCritic(nn.Module):
+#     def __init__(self, state_dim, action_dim):
+#         super(ActorCritic, self).__init__()
+#         # print (f"state_dim = {state_dim}; action_dim = {action_dim}")
+        
+#         # Actor network for discrete action space
+#         self.actor = nn.Sequential(
+#             nn.Linear(state_dim, 64),
+#             nn.Tanh(),
+#             nn.Linear(64, 64),
+#             nn.Tanh(),
+#             nn.Linear(64, action_dim),
+#             nn.Softmax(dim=-1)
+#         )
+
+#         # Critic network
+#         self.critic = nn.Sequential(
+#             nn.Linear(state_dim, 64),
+#             nn.Tanh(),
+#             nn.Linear(64, 64),
+#             nn.Tanh(),
+#             nn.Linear(64, 1)
+#         )
+    
+#     def forward(self):
+#         raise NotImplementedError
+    
+#     def act(self, state):
+#         action_probs = self.actor(state)
+#         dist = Categorical(action_probs)
+#         action = dist.sample()
+#         action_logprob = dist.log_prob(action)
+#         return action.detach(), action_logprob.detach()
+    
+#     def evaluate(self, state, action):
+#         action_probs = self.actor(state)
+#         dist = Categorical(action_probs)
+
+#         action_logprobs = dist.log_prob(action)
+#         dist_entropy = dist.entropy()
+#         state_value = self.critic(state)
+        
+#         return action_logprobs, state_value, dist_entropy

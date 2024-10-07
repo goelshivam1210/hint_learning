@@ -35,7 +35,7 @@ class SimpleEnv(MiniGridEnv):
 
     def __init__(
             self,
-            size=12,
+            size=15,
             agent_start_pos=(1, 1),
             agent_start_dir=0,
             reward_type: RewardType = RewardType.SPARSE,
@@ -44,7 +44,7 @@ class SimpleEnv(MiniGridEnv):
             **kwargs,
         ):
             self.step_count = 0
-            self.cumulative_reward = 0
+            # self.cumulative_reward = 0
             self.agent_start_pos = agent_start_pos
             self.agent_start_dir = agent_start_dir
             self.reward_type = reward_type
@@ -260,7 +260,7 @@ class SimpleEnv(MiniGridEnv):
     
     def step(self, action):
         reward = -0.1  # Default time step penalty
-        self.cumulative_reward += reward  # Track the cumulative reward
+        # self.cumulative_reward += reward  # Track the cumulative reward
         terminated = False
         truncated = False
 
@@ -371,17 +371,22 @@ class SimpleEnv(MiniGridEnv):
 
                     # Update the lidar observation and inventory
                     self.grid.set(*fwd_pos, None)  # Remove the object from the grid
-                    # reward = 1  # Reward for collecting the resource
-                    if self.reward_type == RewardType.SPARSE:
-                        reward = -0.1
-                    else:
+
+                    # Assign rewards based on the reward type (dense or sparse)
+                    if self.reward_type == RewardType.DENSE:
+                        # In DENSE mode, reward immediately upon collecting resources
                         if self.collected_resource_episodes[resource_name] < self.max_reward_episodes:
-                            reward = 10  # Reward for crafting the sword
+                            reward = 10  # Higher reward for first few collections
                         else:
-                            reward = 1
-                    self.cumulative_reward += reward
+                            reward = 1  # Reduced reward after repeated collections
+                        # self.cumulative_reward += reward
+                    else:
+                        # In SPARSE mode, no reward for collecting resources
+                        reward = 0  # Collecting resources doesn't give immediate rewards in sparse mode
                 else:
-                    reward = -0.1  # Penalize redundant collection within the same episode
+                    # Penalize redundant collection within the same episode
+                    reward = 0.0  
+
             return self.get_obs(), reward, terminated, truncated, {}
 
         # Handle basic actions (move, turn, etc.) using the parent class
@@ -389,7 +394,7 @@ class SimpleEnv(MiniGridEnv):
             self.step_count += 1  # Keep track of step count
             obs, reward_super, terminated, truncated, info = super().step(action)
             reward += reward_super
-            self.cumulative_reward += reward  # Update cumulative reward
+            # self.cumulative_reward += reward  # Update cumulative reward
             return self.get_obs(), reward, terminated, truncated, info
 
         # Handle unknown actions
@@ -408,10 +413,13 @@ class SimpleEnv(MiniGridEnv):
 
         # Increase the episode count
         self.current_episode += 1
-        self.cumulative_reward = 0
+        # self.cumulative_reward = 0
 
         self._gen_grid(self.width, self.height)
         self.place_agent()
+        if self.agent_dir is None:
+            self.agent_dir = 0  # Default to facing north if not specified
+
         self.step_count = 0
         return self.get_obs(), {}
 
@@ -450,7 +458,7 @@ class CustomManualControl:
         print (f"Action = {action})")
         print (f"obs = {obs}")
         print(f"step={self.env.step_count}, reward={reward:.2f}")
-        print (f"self.cumulated reward = {self.env.cumulative_reward:.2f}")
+        # print (f"self.cumulated reward = {self.env.cumulative_reward:.2f}")
 
 
         if terminated:
@@ -483,10 +491,12 @@ class CustomManualControl:
             "right": SimpleEnv.Actions.turn_right.value,
             "up": SimpleEnv.Actions.move_forward.value,
             "space": SimpleEnv.Actions.toggle.value,
-            "c": SimpleEnv.Actions.craft_sword.value,  # 'c' for craft sword
+            "s": SimpleEnv.Actions.craft_sword.value,  # 'c' for craft sword
             "o": SimpleEnv.Actions.open_chest.value,   # 'o' for open chest
-            "t": SimpleEnv.Actions.approach_crafting_table.value,  # 't' for approach crafting table
-            "h": SimpleEnv.Actions.approach_chest.value,  # 'h' for approach chest        
+            "c": SimpleEnv.Actions.approach_crafting_table.value,  # 't' for approach crafting table
+            "h": SimpleEnv.Actions.approach_chest.value,  # 'h' for approach chest     
+            "i": SimpleEnv.Actions.approach_iron_ore.value,  # 'm' for approach iron ore
+            "t": SimpleEnv.Actions.approach_tree.value,  # 'w' for approach silver ore
             }
 
         if key in key_to_action:

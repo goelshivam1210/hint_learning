@@ -38,14 +38,12 @@ class EnvWrapper(Wrapper):
 
     def _check_constraint(self, constraint):
         """Check if a constraint is satisfied dynamically, with support for negation."""
-        # Check if the constraint contains "not", and adjust parsing accordingly
         is_negated = constraint.startswith("not ")
 
-        # Remove "not " from the constraint if it exists
+        # Remove "not " if it exists
         if is_negated:
             constraint = constraint.replace("not ", "")
 
-        # Split the constraint into parts: "inventory(item) > 0" -> ["inventory", "item", ">", "0"]
         parts = constraint.split()
 
         # Handle inventory constraints
@@ -55,7 +53,6 @@ class EnvWrapper(Wrapper):
             value = int(parts[2])
             item_count = self.env.inventory.count(item)
 
-            # Evaluate the condition based on the operator
             if operator == ">":
                 result = item_count > value
             elif operator == "=":
@@ -63,34 +60,33 @@ class EnvWrapper(Wrapper):
             else:
                 result = False
 
-            # Return the negated result if the constraint was negated
             return not result if is_negated else result
 
         # Handle holding constraints
         elif "holding" in parts[0]:
             item = parts[0].split("(")[1].replace(")", "")
-            result = item in self.env.inventory and self.env.inventory[-1] == item  # Check if the agent is holding the specific item
-
-            # Return the negated result if the constraint was negated
+            result = item in self.env.inventory and self.env.inventory[-1] == item
             return not result if is_negated else result
 
         # Handle facing constraints
         elif "facing" in parts[0]:
             target = parts[0].split("(")[1].replace(")", "")
-            # We need to check whether the agent is facing the target object
-            # Using the agent's position and direction
-            fwd_pos = self.env.front_pos  # This is the position the agent is facing
+            
+            # Check for agent_dir initialization
+            if self.env.agent_dir is None:
+                return False  # Avoid calculating direction if it's not initialized
+
+            # Proceed if direction is valid
+            fwd_pos = self.env.front_pos
             obj_in_front = self.env.grid.get(*fwd_pos)
             if obj_in_front is not None and isinstance(obj_in_front, Resource) and obj_in_front.resource_name == target:
                 result = True
             else:
                 result = False
 
-            # Return the negated result if the constraint was negated
             return not result if is_negated else result
 
-        # Default to False if the constraint type is not recognized
-        return False
+        return False  # Default case
 
     def reset(self, **kwargs):
         """Reset the environment and augment the initial state with constraints."""
@@ -119,7 +115,8 @@ class EnvWrapper(Wrapper):
 
         # Encode constraints as a one-hot vector
         constraint_encoding = self.encode_constraints()
-        # print(f"Debug: Constraints Encoding Shape: {constraint_encoding.shape}")
+        # print(f"Debug: Constraints Encoding: {constraint_encoding}")    
+
 
         # Concatenate the original state with the constraint encoding
         augmented_state = np.concatenate((lidar_obs, inventory_obs, constraint_encoding), axis=-1)

@@ -3,8 +3,15 @@ import torch
 import numpy as np
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
-from env import SimpleEnv
 from ppo import PPO
+
+
+# Import environment and wrapper
+from env import SimpleEnv
+from env_wrapper import EnvWrapper
+
+# import network for attention
+from attention_net_own import AttentionNet
 
 # Hyperparameters
 lr_actor = 0.0003
@@ -28,9 +35,23 @@ convergence_window = 10  # Consider last 10 evaluations for success tracking
 # Device setup
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Flag for using the wrapper or not
+USE_WRAPPER = True  # Change this flag to toggle between wrapped (constraints encoded +concatenated)
+USE_ATTENTION = True # Change this flag to toggle between using attention or not
+
+# Utility function to flatten dict observation space for the unwrapped environment
+def flatten_obs_space(obs_dict):
+    if isinstance(obs_dict, dict) and 'lidar' in obs_dict and 'inventory' in obs_dict:
+        lidar_obs = obs_dict['lidar'].flatten()
+        inventory_obs = obs_dict['inventory']
+        return np.concatenate([lidar_obs, inventory_obs], axis=-1)
+    else:
+        # If it's already flattened, return it as is
+        return obs_dict
+
 # Create a unique identifier for this training instance
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-instance_id = f"ppo_instance_{timestamp}"
+instance_id = f"ppo_instance_{timestamp}hints_{USE_WRAPPER}_attention_{USE_ATTENTION}"
 
 # Create a directory for saving models and logs for this training instance
 base_dir = os.path.join("log", instance_id)
@@ -46,24 +67,52 @@ writer = SummaryWriter(log_dir)
 
 # Environment setup
 def make_env():
-    return SimpleEnv(render_mode=None)
+    env = SimpleEnv(render_mode=None)  # Create the base environment
+    if USE_WRAPPER:
+        wrapped_env = EnvWrapper(env, "constraints.yaml")  # Wrap with constraint handler
+        return wrapped_env
+    else:
+        return env  # Return the base environment without wrapping
 
 env = make_env()
 test_env = make_env()
-
 # Observation and action space
-obs_space = env.observation_space
-action_space = env.action_space
+dummy_env = make_env()
+action_space = dummy_env.action_space
 
-# Extract observation space for lidar and inventory
-lidar_shape = obs_space['lidar'].shape
-inventory_shape = obs_space['inventory'].shape
-combined_shape = lidar_shape[0] * lidar_shape[1] + inventory_shape[0]
+# Handling the observation space shape for wrapped and unwrapped cases
+if USE_WRAPPER:
+    obs_space = dummy_env.observation_space
+    combined_shape = obs_space.shape
+else:
+    # Flatten observation space from dict to a vector for the unwrapped case
+    obs_sample = dummy_env.reset()[0]  # Sample an observation to infer the shape
+    flattened_obs = flatten_obs_space(obs_sample)
+    combined_shape = flattened_obs.shape  # Get the flattened observation shape
+
+print(f"Observation space shape: {combined_shape}")
+print(f"Action space shape: {action_space}")
+
+if USE_ATTENTION:
+    if isinstance(dummy_env, EnvWrapper):
+        constraint_dim = len(dummy_env.constraints)
+        # print (f"Constraint dimension: {constraint_dim}")
+    else:
+        constraint_dim = 0  # If running without wrapper, constraints don't exist
+
 
 # PPO setup
-ppo_agent = PPO(state_dim=combined_shape, action_dim=action_space.n, lr_actor=lr_actor, lr_critic=lr_critic,
-                gamma=gamma, K_epochs=K_epochs, eps_clip=eps_clip)
-
+ppo_agent = PPO(
+    state_dim=combined_shape[0], 
+    action_dim=action_space.n, 
+    lr_actor=lr_actor, 
+    lr_critic=lr_critic,
+    gamma=gamma, 
+    K_epochs=K_epochs, 
+    eps_clip=eps_clip, 
+    use_attention=USE_ATTENTION,  # Toggle attention
+    attention_net=AttentionNet(state_dim=combined_shape[0], constraint_dim=constraint_dim) if USE_ATTENTION else None  # Pass attention network if needed
+)
 # Training Loop
 def train():
     timestep = 0
@@ -73,12 +122,16 @@ def train():
 
         cumulative_reward = 0
 
+        # Encode constraints (if using attention)
+        constraints = dummy_env.encode_constraints() if USE_ATTENTION else None
+        if USE_ATTENTION:
+            constraints = torch.tensor(constraints, dtype=torch.float32).to(device)  # Convert to tensor
 
         for t in range(max_timesteps):
             timestep += 1
 
-            # Select action
-            action = ppo_agent.select_action(state)
+            # Select action (pass constraints if using attention)
+            action = ppo_agent.select_action(state, constraints=constraints)
 
             # Step environment
             next_state, reward, terminated, truncated, _ = env.step(action)
@@ -95,17 +148,16 @@ def train():
             if timestep % update_timestep == 0:
                 ppo_agent.update()
                 timestep = 0
-            
+
             if terminated:
-                success_train +=1
+                success_train += 1
 
             if terminated or truncated:
-
                 break
 
         # TensorBoard logging for training
         writer.add_scalar("Train/Reward", cumulative_reward, episode)
-        writer.add_scalar("Train/Sucess_Rate", success_train, episode)
+        writer.add_scalar("Train/Success_Rate", success_train, episode)
 
         # Print and log
         if episode % log_interval == 0:
@@ -128,11 +180,23 @@ def train():
 
 
 # Testing function
+# Testing function
 def test_agent(env, agent):
     # Clone the policy to ensure no interference between testing and training
-    test_agent_policy = PPO(state_dim=combined_shape, action_dim=action_space.n, lr_actor=lr_actor, lr_critic=lr_critic,
-                            gamma=gamma, K_epochs=K_epochs, eps_clip=eps_clip)
-    test_agent_policy.policy.load_state_dict(agent.policy.state_dict())  # Use the current policy for testing
+    test_agent_policy = PPO(
+        state_dim=combined_shape[0], 
+        action_dim=action_space.n, 
+        lr_actor=lr_actor, 
+        lr_critic=lr_critic,
+        gamma=gamma, 
+        K_epochs=K_epochs, 
+        eps_clip=eps_clip, 
+        use_attention=USE_ATTENTION,  # Ensure use_attention is passed
+        attention_net=AttentionNet(state_dim=combined_shape[0], constraint_dim=constraint_dim) if USE_ATTENTION else None  # Pass attention network if needed
+    )
+    
+    # Use the current policy for testing
+    test_agent_policy.policy.load_state_dict(agent.policy.state_dict())
 
     rewards = []
     successes = 0
