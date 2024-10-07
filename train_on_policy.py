@@ -16,6 +16,9 @@ import yaml
 from env import SimpleEnv
 from env_wrapper import EnvWrapper
 
+# import network for attention
+from attention_net import AttentionNet
+
 # Hyperparameters
 lr = 1e-5
 gamma = 0.99
@@ -36,7 +39,8 @@ convergence_window = 10  # Last 10 evaluations
 device = torch.device("cpu") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Flag for using the wrapper or not
-USE_WRAPPER = False  # Change this flag to toggle between wrapped or unwrapped environment
+USE_WRAPPER = False  # Change this flag to toggle between wrapped (constraints encoded +concatenated)
+USE_ATTENTION = False # Change this flag to toggle between using attention or not
 
 # Utility function to flatten dict observation space for the unwrapped environment
 def flatten_obs_space(obs_dict):
@@ -76,12 +80,22 @@ else:
 
 print(f"Observation space shape: {combined_shape}")
 
+if USE_ATTENTION:
+    if isinstance(dummy_env, EnvWrapper):
+        constraint_dim = len(dummy_env.constraints)
+        print (f"Constraint dimension: {constraint_dim}")
+    else:
+        constraint_dim = 0  # If running without wrapper, constraints don't exist
+
+    print(f"Constraint dimension: {constraint_dim}")
+    net = AttentionNet(combined_shape, constraint_dim=constraint_dim, hidden_dim=64)
+else:
+    net = Net(combined_shape, hidden_sizes=[256, 64], device=device)
+
 # Define the Actor and Critic networks for PPO
-net = Net(combined_shape, hidden_sizes=[256, 64], device=device)
 actor = Actor(net, action_space.n, device=device).to(device)
 critic = Critic(net, device=device).to(device)
 actor_critic = ActorCritic(actor, critic).to(device)
-
 # Optimizer
 optim = torch.optim.Adam(actor_critic.parameters(), lr=lr)
 
