@@ -2,8 +2,9 @@ import os
 import torch
 import numpy as np
 from datetime import datetime
-from torch.utils.tensorboard import SummaryWriter
 import argparse
+from gymnasium.wrappers import RecordVideo
+from torch.utils.tensorboard import SummaryWriter
 from ppo import PPO
 
 
@@ -36,6 +37,8 @@ def parse_args():
     parser.add_argument('--log-interval', type=int, default=10, help='Interval to log training progress.')
     parser.add_argument('--test-interval', type=int, default=20, help='Interval to test the agent.')
     parser.add_argument('--n-test-episodes', type=int, default=20, help='Number of test episodes.')
+    parser.add_argument('--seed', type=int, default=0, help='Random seed for reproducibility.')
+    parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
 
     args = parser.parse_args()
     return args
@@ -83,6 +86,15 @@ def main():
             return wrapped_env
         else:
             return env  # Return the base environment without wrapping
+        
+    # Environment setup for video recording
+    def make_env_for_video():
+        env = SimpleEnv(render_mode='rgb_array')  # Enable rgb_array mode for video recording
+        if args.use_wrapper:
+            wrapped_env = EnvWrapper(env, "constraints.yaml")
+            return wrapped_env
+        else:
+            return env
 
     env = make_env()
     test_env = make_env()
@@ -125,6 +137,8 @@ def main():
     def train():
         timestep = 0
         success_train = 0
+        success_window = []
+        converged = False
         for episode in range(1, args.max_episodes + 1):
             state, _ = env.reset()
 
@@ -180,10 +194,45 @@ def main():
             # Test the agent periodically
             if episode % args.test_interval == 0:
                 test_rewards, success_rate = test_agent(test_env, ppo_agent)
+                # Append the success rate to the sliding window
+                success_window.append(success_rate)
+
+                # Maintain the window size (last 10 test results)
+                if len(success_window) > args.convergence:
+                    success_window.pop(0)
+
+                # Check for convergence: if the average success rate over the last 10 tests is > 95%
+                if len(success_window) == args.convergence and np.mean(success_window) >= 0.95:
+                    print(f"Converged with success rate: {np.mean(success_window):.2f}")
+                    converged = True
                 writer.add_scalar("Test/Reward", np.mean(test_rewards), episode)
                 writer.add_scalar("Test/Success_Rate", success_rate, episode)
                 print(f"Test Results - Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
+                # Stop training if converged
+                if converged:
+                    model_path = os.path.join(model_save_dir, f"ppo_model_converged.pth")
+                    ppo_agent.save(model_path)
+                    print(f"Converged and saved model at {model_path}")
+                    break
+        # Directory to save the video
+        video_dir = os.path.join(base_dir, "videos")
+        os.makedirs(video_dir, exist_ok=True)
 
+        # Set the episode trigger to only save video for the first 5 episodes
+        video_env = RecordVideo(make_env_for_video(), video_dir, episode_trigger=lambda x: x < 5)  # Save videos for episodes 1-5
+
+        # Loop through episodes for video recording (limited to the first 5)
+        for episode in range(1, 6):  # Loop only for 5 episodes
+            state, _ = video_env.reset()
+            terminated, truncated = False, False
+            while not (terminated or truncated):
+                action = ppo_agent.select_action(state)
+                state, _, terminated, truncated, _ = video_env.step(action)
+
+            print(f"Video saved for episode {episode}")
+
+        video_env.close()
+        print(f"Videos saved to {video_dir}")
         writer.close()
 
     # Testing function
