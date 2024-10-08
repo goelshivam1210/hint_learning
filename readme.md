@@ -3,15 +3,23 @@
 Currently we have custom gridworld environment using the MiniGrid framework that trains a reinforcement learning agent using Proximal Policy Optimization (PPO) with Tianshou. The goal of the agent is to collect resources, craft a sword, and find a treasure in the environment.
 
 ## Table of Contents
-1. [Overview](#overview)
-2. [Environment Details](#environment-details)
-3. [Actions](#actions)
-4. [Observation Space](#observation-space)
-5. [Reward Structure](#reward-structure)
-6. [Training Details](#training-details)
-7. [Manual Control](#manual-control)
-8. [Installation](#installation)
-9. [Usage](#usage)
+- [See-Say : Code base for Hint guided learning](#see-say--code-base-for-hint-guided-learning)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Environment Details](#environment-details)
+  - [Actions](#actions)
+  - [Observation Space](#observation-space)
+  - [Reward Structure](#reward-structure)
+  - [Training Details](#training-details)
+    - [Success Criteria](#success-criteria)
+  - [Manual Control](#manual-control)
+  - [Installation](#installation)
+    - [Requirements](#requirements)
+    - [Installation Steps](#installation-steps)
+  - [Usage](#usage)
+    - [Training the Agent](#training-the-agent)
+    - [Running Manual Control](#running-manual-control)
+  - [More to come soon! Stay tuned!!!](#more-to-come-soon-stay-tuned)
 
 ## Overview
 
@@ -81,7 +89,7 @@ The environment also supports manual control via keyboard inputs. You can contro
 
 ### Requirements
 
-- Python 3.8+
+- Python 3.11+
 - Gymnasium
 - MiniGrid
 - Tianshou
@@ -117,13 +125,33 @@ The environment also supports manual control via keyboard inputs. You can contro
 
 ### Training the Agent
 
-To train the agent using PPO, run the following command:
+To train the agent using PPO (`PPO.py`), run the following command:
 
 ```bash
-python train_on_policy.py
+python run.py
+```
+
+You can modify various aspects of the training via command-line arguments:
+
+- `--use-wrapper`: Use the environment wrapper that encodes constraints (default: `False`).
+- `--use-attention`: Enable the attention mechanism for constraint-based observations (default: `False`).
+- `--device`: Specify the device to run the training on (`cpu`, `cuda`, or `mps`). By default, the script will automatically choose the most suitable device.
+- `--max-episodes`: Set the maximum number of training episodes (default: `100000`).
+- `--max-timesteps`: Set the maximum number of timesteps per episode (default: `300`).
+- `--update-timestep`: Set the number of timesteps before updating the PPO agent (default: `2000`).
+
+Example usage
+```bash
+python run.py --use-wrapper --use-attention --device cuda --max-episodes 50000 --max-timesteps 400
 ```
 
 This will start the training process and log results to TensorBoard.
+
+For tensorboard logging
+
+```bash
+tensorboard --logdir=log/
+```
 
 ### Running Manual Control
 
