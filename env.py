@@ -5,7 +5,8 @@ from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
 from minigrid.core.world_object import Ball, Box
 from minigrid.minigrid_env import MiniGridEnv
-from enum import Enum
+from aenum import Enum
+from aenum import extend_enum
 import pygame
 import numpy as np
 
@@ -28,10 +29,6 @@ class SimpleEnv(MiniGridEnv):
         toggle = 3
         craft_sword = 4
         open_chest = 5
-        approach_crafting_table = 6
-        approach_chest = 7
-        approach_tree = 8
-        approach_iron_ore = 9
 
     def __init__(
             self,
@@ -59,6 +56,11 @@ class SimpleEnv(MiniGridEnv):
 
             # Updated the resource_names to reflect only non-collected world items
             self.resource_names = ["iron_ore", "silver_ore", "platinum_ore", "gold_ore", "tree", "chest", "crafting_table", "wall"]
+
+            for resource_name in self.resource_names:
+                new_action = "approach_" + resource_name
+                if new_action not in [member.name for member in self.Actions]:
+                    extend_enum(self.Actions, new_action, len(self.Actions))
 
             # Inventory for collected items
             self.inventory_items = ["iron", "silver", "gold", "platinum", "wood", "iron_sword", "treasure"]
@@ -264,45 +266,12 @@ class SimpleEnv(MiniGridEnv):
         terminated = False
         truncated = False
 
-        # Custom action for approaching tree
-        if action == self.Actions.approach_tree.value:
+        if self.Actions(action).name.startswith("approach_"):
             # print("Executing approach_tree action")
-            crafting_table_pos = self.find_object_position("tree")
-            if crafting_table_pos:
-                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, crafting_table_pos)
-                if adj_pos is not None:
-                    self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
-                    self.agent_dir = adj_dir  # Make the agent face the object
-            return self.get_obs(), reward, terminated, truncated, {}
-
-        # Custom action for approaching iron_ore
-        if action == self.Actions.approach_iron_ore.value:
-            # print("Executing approach_iron_ore action")
-            crafting_table_pos = self.find_object_position("iron_ore")
-            if crafting_table_pos:
-                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, crafting_table_pos)
-                if adj_pos is not None:
-                    self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
-                    self.agent_dir = adj_dir  # Make the agent face the object
-            return self.get_obs(), reward, terminated, truncated, {}
-
-        # Custom action for approaching crafting table
-        if action == self.Actions.approach_crafting_table.value:
-            # print("Executing approach_crafting_table action")
-            crafting_table_pos = self.find_object_position("crafting_table")
-            if crafting_table_pos:
-                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, crafting_table_pos)
-                if adj_pos is not None:
-                    self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
-                    self.agent_dir = adj_dir  # Make the agent face the object
-            return self.get_obs(), reward, terminated, truncated, {}
-
-        # Custom action for approaching chest
-        elif action == self.Actions.approach_chest.value:
-            # print("Executing approach_chest action")
-            chest_pos = self.find_object_position("chest")
-            if chest_pos:
-                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, chest_pos)
+            resource_name = self.Actions(action).name[len("approach_"):]
+            resource_pos = self.find_object_position(resource_name)
+            if resource_pos:
+                adj_pos, adj_dir = self.get_adjacent_pos_and_dir(self.agent_pos, resource_pos)
                 if adj_pos is not None:
                     self.agent_pos = adj_pos  # Teleport the agent to the adjacent position
                     self.agent_dir = adj_dir  # Make the agent face the object
