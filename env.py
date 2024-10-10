@@ -35,7 +35,7 @@ class SimpleEnv(MiniGridEnv):
             size=15,
             agent_start_pos=(1, 1),
             agent_start_dir=0,
-            reward_type: RewardType = RewardType.SPARSE,
+            reward_type: RewardType = RewardType.DENSE,
             max_steps: int | None = None,
             max_reward_episodes: int = 50,  # Number of episodes with sword reward
             **kwargs,
@@ -462,11 +462,12 @@ class CustomManualControl:
             "space": SimpleEnv.Actions.toggle.value,
             "s": SimpleEnv.Actions.craft_sword.value,  # 'c' for craft sword
             "o": SimpleEnv.Actions.open_chest.value,   # 'o' for open chest
-            "c": SimpleEnv.Actions.approach_crafting_table.value,  # 't' for approach crafting table
-            "h": SimpleEnv.Actions.approach_chest.value,  # 'h' for approach chest     
-            "i": SimpleEnv.Actions.approach_iron_ore.value,  # 'm' for approach iron ore
-            "t": SimpleEnv.Actions.approach_tree.value,  # 'w' for approach silver ore
             }
+        
+        for member in self.env.Actions:
+            if member.value not in key_to_action.values():
+                print(f"printing {chr(member.value + 97)}")
+                key_to_action[chr(member.value + 97)] = member.value
 
         if key in key_to_action:
             action = key_to_action[key]
