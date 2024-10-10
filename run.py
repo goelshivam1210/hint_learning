@@ -7,7 +7,6 @@ from gymnasium.wrappers import RecordVideo
 from torch.utils.tensorboard import SummaryWriter
 from ppo import PPO
 
-
 # Import environment and wrapper
 from env import SimpleEnv
 from env_wrapper import EnvWrapper
@@ -205,6 +204,7 @@ def main():
                 if len(success_window) == args.convergence and np.mean(success_window) >= 0.95:
                     print(f"Converged with success rate: {np.mean(success_window):.2f}")
                     converged = True
+
                 writer.add_scalar("Test/Reward", np.mean(test_rewards), episode)
                 writer.add_scalar("Test/Success_Rate", success_rate, episode)
                 print(f"Test Results - Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
@@ -275,6 +275,7 @@ def main():
 
     # Start training
     train()
+    return log_dir
 
 if __name__ == "__main__":
     main()
