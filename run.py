@@ -29,15 +29,15 @@ def parse_args():
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=80, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
-    parser.add_argument('--max-episodes', type=int, default=100000, help='Maximum number of training episodes.')
-    parser.add_argument('--max-timesteps', type=int, default=300, help='Maximum number of timesteps per episode.')
-    parser.add_argument('--update-timestep', type=int, default=2000, help='Timesteps after which PPO update is triggered.')
+    parser.add_argument('--max-episodes', type=int, default=10000, help='Maximum number of training episodes.')
+    parser.add_argument('--max-timesteps', type=int, default=100, help='Maximum number of timesteps per episode.')
+    parser.add_argument('--update-timestep', type=int, default=1000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--save-interval', type=int, default=1000, help='Interval to save the model.')
     parser.add_argument('--log-interval', type=int, default=10, help='Interval to log training progress.')
-    parser.add_argument('--test-interval', type=int, default=20, help='Interval to test the agent.')
-    parser.add_argument('--n-test-episodes', type=int, default=20, help='Number of test episodes.')
-    parser.add_argument('--seed', type=int, default=0, help='Random seed for reproducibility.')
-    parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
+    parser.add_argument('--test-interval', type=int, default=5, help='Interval to test the agent.')
+    parser.add_argument('--n-test-episodes', type=int, default=25, help='Number of test episodes.')
+    parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
+    parser.add_argument('--convergence', type=int, default=15, help='convergence episodes')
 
     args = parser.parse_args()
     return args
@@ -262,6 +262,7 @@ def main():
                 action = test_agent_policy.select_action(state)
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 cumulative_reward += reward
+                state = next_state
 
                 if terminated or truncated:
                     break
