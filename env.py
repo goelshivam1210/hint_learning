@@ -35,7 +35,7 @@ class SimpleEnv(MiniGridEnv):
             size=15,
             agent_start_pos=(1, 1),
             agent_start_dir=0,
-            reward_type: RewardType = RewardType.DENSE,
+            reward_type: RewardType = RewardType.SPARSE,
             max_steps: int | None = None,
             max_reward_episodes: int = 50,  # Number of episodes with sword reward
             **kwargs,
