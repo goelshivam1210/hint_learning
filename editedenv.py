@@ -3,7 +3,7 @@ import gymnasium as gym
 from gymnasium.utils import seeding
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
-from minigrid.core.world_object import Ball, Box
+from minigrid.core.world_object import Ball, Box, Key
 from minigrid.minigrid_env import MiniGridEnv
 from aenum import Enum
 from aenum import extend_enum
@@ -21,6 +21,12 @@ class Resource(Ball):
         super().__init__(color)
         self.resource_name = resource_name
 
+class Nuisance(Key):
+    """Custom Key object with a nuisance name"""
+    def __init__(self, color, nuisance_name):
+        super().__init__(color)
+        self.nuisance_name = nuisance_name
+
 class SimpleEnv(MiniGridEnv):
     class Actions(Enum):
         move_forward = 0
@@ -32,10 +38,11 @@ class SimpleEnv(MiniGridEnv):
 
     def __init__(
             self,
-            size=15,
+            size=25,
             agent_start_pos=(1, 1),
             agent_start_dir=0,
             reward_type: RewardType = RewardType.SPARSE,
+            nuisances=False,
             max_steps: int | None = None,
             max_reward_episodes: int = 50,  # Number of episodes with sword reward
             **kwargs,
@@ -45,6 +52,7 @@ class SimpleEnv(MiniGridEnv):
             self.agent_start_pos = agent_start_pos
             self.agent_start_dir = agent_start_dir
             self.reward_type = reward_type
+            self.nuisances = nuisances
 
             self.max_reward_episodes = max_reward_episodes  # Threshold for giving sword reward
             self.current_episode = 0  # Track the current episode
@@ -56,6 +64,10 @@ class SimpleEnv(MiniGridEnv):
 
             # Updated the resource_names to reflect only non-collected world items
             self.resource_names = ["iron_ore", "silver_ore", "platinum_ore", "gold_ore", "tree", "chest", "crafting_table", "wall"]
+
+            if self.nuisances:
+                for i in range(1, 13):
+                    self.resource_names.append(f"nuisance{i}")
 
             for resource_name in self.resource_names:
                 new_action = "approach_" + resource_name
@@ -124,13 +136,17 @@ class SimpleEnv(MiniGridEnv):
         self.grid.wall_rect(0, 0, width, height)
 
         # Place resources and other objects on the grid
-        self.place_obj(Resource("red", "iron_ore"), top=(1, 1))
-        self.place_obj(Resource("grey", "silver_ore"), top=(2, 1))
-        self.place_obj(Resource("purple", "platinum_ore"), top=(3, 1))
-        self.place_obj(Resource("yellow", "gold_ore"), top=(4, 1))
-        self.place_obj(Resource("green", "tree"), top=(5, 1))
-        self.place_obj(Box("purple"), top=(6, 1))  # Chest
-        self.place_obj(Box("blue"), top=(7, 1))    # Crafting table
+        self.place_obj(Resource("red", "iron_ore"), top=(0, 0))
+        self.place_obj(Resource("grey", "silver_ore"), top=(0, 0))
+        self.place_obj(Resource("purple", "platinum_ore"), top=(0, 0))
+        self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
+        self.place_obj(Resource("green", "tree"), top=(0, 0))
+        self.place_obj(Box("purple"), top=(0, 0))  # Chest
+        self.place_obj(Box("blue"), top=(0, 0))    # Crafting table
+
+        if self.nuisances:
+            for i in range(1, 13):
+                self.place_obj(Nuisance("red", f"nuisance{i}"), top=(0, 0))
 
         # Ensure the agent's starting position is placed in a valid, empty cell
         if self.agent_start_pos is not None:
@@ -196,7 +212,12 @@ class SimpleEnv(MiniGridEnv):
         if isinstance(obj, Resource):
             return self.resource_names.index(obj.resource_name)
         elif isinstance(obj, Box):
-            return self.resource_names.index("chest" if obj.color == 'purple' else "crafting_table")
+            if obj.color == 'purple':
+                return self.resource_names.index("chest")
+            else:
+                return self.resource_names.index("crafting_table")
+        elif (self.nuisances and isinstance(obj, Nuisance)):
+            return self.resource_names.index(obj.nuisance_name)
         else:
             return self.resource_names.index("wall")
 
@@ -237,6 +258,8 @@ class SimpleEnv(MiniGridEnv):
                     return (x, y)
                 elif isinstance(obj, Box) and obj_name == "crafting_table" and obj.color == "blue":
                     return (x, y)
+                elif isinstance(obj, Nuisance) and obj.nuisance_name == obj_name:
+                    return (x, y)
         return None
     def get_adjacent_pos_and_dir(self, agent_pos, target_pos):
         """Given the agent's position and the target position, find the adjacent position and direction to face the object."""
@@ -265,13 +288,9 @@ class SimpleEnv(MiniGridEnv):
         # self.cumulative_reward += reward  # Track the cumulative reward
         terminated = False
         truncated = False
-        
-        self.step_count += 1
-        if self.step_count >= self.max_steps:
-            terminated = True
-
 
         if self.Actions(action).name.startswith("approach_"):
+            # print("Executing approach_tree action")
             resource_name = self.Actions(action).name[len("approach_"):]
             resource_pos = self.find_object_position(resource_name)
             if resource_pos:
@@ -364,6 +383,7 @@ class SimpleEnv(MiniGridEnv):
 
         # Handle basic actions (move, turn, etc.) using the parent class
         if action in [self.Actions.move_forward.value, self.Actions.turn_left.value, self.Actions.turn_right.value]:
+            self.step_count += 1  # Keep track of step count
             obs, reward_super, terminated, truncated, info = super().step(action)
             reward += reward_super
             # self.cumulative_reward += reward  # Update cumulative reward
@@ -463,10 +483,10 @@ class CustomManualControl:
             "right": SimpleEnv.Actions.turn_right.value,
             "up": SimpleEnv.Actions.move_forward.value,
             "space": SimpleEnv.Actions.toggle.value,
-            "s": SimpleEnv.Actions.craft_sword.value,  # 'c' for craft sword
+            "s": SimpleEnv.Actions.craft_sword.value,  # 's' for craft sword
             "o": SimpleEnv.Actions.open_chest.value,   # 'o' for open chest
             }
-        
+            
         for member in self.env.Actions:
             if member.value not in key_to_action.values():
                 print(f"printing {chr(member.value + 97)}")
@@ -480,7 +500,7 @@ class CustomManualControl:
 
 
 def main():
-    env = SimpleEnv(render_mode="human")
+    env = SimpleEnv(render_mode="human", nuisances=True)
     manual_control = CustomManualControl(env, seed=42)
     manual_control.start()
 
