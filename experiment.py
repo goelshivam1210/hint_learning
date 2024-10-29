@@ -14,7 +14,7 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 
 
 # Create a unique identifier for this plot
-num_trials = 2
+num_trials = 5
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 instance_id = f"plot_{timestamp}_next_{num_trials}_models"
 
