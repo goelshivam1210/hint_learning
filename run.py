@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
     parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
     parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
-    
+
     args = parser.parse_args()
     return args
 
@@ -178,7 +178,7 @@ def main():
 
             # TensorBoard logging for training
             writer.add_scalar("Train/Reward", cumulative_reward, episode)
-            writer.add_scalar("Train/Success_Rate", success_train, episode)
+            writer.add_scalar("Train/Success_Rate", success_train / episode, episode)
 
             # Print and log
             if episode % args.log_interval == 0:
@@ -253,12 +253,13 @@ def main():
         rewards = []
         successes = 0
 
-        for _ in range(args.n_test_episodes):
+        for i in range(args.n_test_episodes):
             state, _ = env.reset()
             cumulative_reward = 0
             terminated = False
+            truncated = False
 
-            while not terminated:
+            for j in range(args.max_timesteps):
                 action = test_agent_policy.select_action(state)
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 cumulative_reward += reward
