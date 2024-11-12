@@ -52,7 +52,7 @@ class SimpleEnv(MiniGridEnv):
             self.agent_start_pos = agent_start_pos
             self.agent_start_dir = agent_start_dir
             self.reward_type = reward_type
-            self.nuisances = nuisances
+            self.nuisances = True
 
             self.max_reward_episodes = max_reward_episodes  # Threshold for giving sword reward
             self.current_episode = 0  # Track the current episode
@@ -66,7 +66,7 @@ class SimpleEnv(MiniGridEnv):
             self.resource_names = ["iron_ore", "silver_ore", "platinum_ore", "gold_ore", "tree", "chest", "crafting_table", "wall"]
 
             if self.nuisances:
-                for i in range(1, 13):
+                for i in range(1, 6):
                     self.resource_names.append(f"nuisance{i}")
 
             for resource_name in self.resource_names:
@@ -145,7 +145,7 @@ class SimpleEnv(MiniGridEnv):
         self.place_obj(Box("blue"), top=(0, 0))    # Crafting table
 
         if self.nuisances:
-            for i in range(1, 13):
+            for i in range(1, 6):
                 self.place_obj(Nuisance("red", f"nuisance{i}"), top=(0, 0))
 
         # Ensure the agent's starting position is placed in a valid, empty cell
