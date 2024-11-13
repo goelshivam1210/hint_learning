@@ -289,6 +289,11 @@ class SimpleEnv(MiniGridEnv):
         terminated = False
         truncated = False
 
+        self.step_count += 1
+
+        if self.step_count >= self.max_steps:
+            terminated = True
+
         if self.Actions(action).name.startswith("approach_"):
             # print("Executing approach_tree action")
             resource_name = self.Actions(action).name[len("approach_"):]
@@ -383,7 +388,6 @@ class SimpleEnv(MiniGridEnv):
 
         # Handle basic actions (move, turn, etc.) using the parent class
         if action in [self.Actions.move_forward.value, self.Actions.turn_left.value, self.Actions.turn_right.value]:
-            self.step_count += 1  # Keep track of step count
             obs, reward_super, terminated, truncated, info = super().step(action)
             reward += reward_super
             # self.cumulative_reward += reward  # Update cumulative reward
