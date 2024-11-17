@@ -390,6 +390,7 @@ class SimpleEnv(MiniGridEnv):
         if action in [self.Actions.move_forward.value, self.Actions.turn_left.value, self.Actions.turn_right.value]:
             obs, reward_super, terminated, truncated, info = super().step(action)
             reward += reward_super
+            self.step_count -= 1
             # self.cumulative_reward += reward  # Update cumulative reward
             return self.get_obs(), reward, terminated, truncated, info
 
