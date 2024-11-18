@@ -97,14 +97,15 @@ class PPO:
         
         self.MseLoss = nn.MSELoss()
 
-    def select_action(self, state, constraints=None):
+    def select_action(self, state, constraints=None, testing=False):
         with torch.no_grad():
             state = torch.FloatTensor(state).to(device)
             action, action_logprob = self.policy_old.act(state, constraints)  # Pass constraints
         
-        self.buffer.states.append(state)
-        self.buffer.actions.append(action)
-        self.buffer.logprobs.append(action_logprob)
+        if not testing:
+            self.buffer.states.append(state)
+            self.buffer.actions.append(action)
+            self.buffer.logprobs.append(action_logprob)
         
         return action.item()
 

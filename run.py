@@ -8,7 +8,9 @@ from torch.utils.tensorboard import SummaryWriter
 from ppo import PPO
 
 # Import environment and wrapper
-from env import SimpleEnv
+from editedenv import SimpleEnv
+from env2 import SimpleEnv2
+
 from env_wrapper import EnvWrapper
 
 # Import attention network
@@ -21,6 +23,8 @@ def parse_args():
     # Environment and attention flags
     parser.add_argument('--use-wrapper', action='store_true', help='Use environment wrapper with constraint encoding.')
     parser.add_argument('--use-attention', action='store_true', help='Use attention mechanism in PPO.')
+    parser.add_argument('--use-smallenv', action='store_true', help='Use environment with smaller action space')
+
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
 
     # Hyperparameters
@@ -29,12 +33,12 @@ def parse_args():
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=80, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
-    parser.add_argument('--max_episodes', type=int, default=5000, help='Maximum number of training episodes.')
+    parser.add_argument('--max_episodes', type=int, default=10000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
     parser.add_argument('--update_timestep', type=int, default=1000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--save_interval', type=int, default=1000, help='Interval to save the model.')
     parser.add_argument('--log_interval', type=int, default=10, help='Interval to log training progress.')
-    parser.add_argument('--test_interval', type=int, default=5, help='Interval to test the agent.')
+    parser.add_argument('--test_interval', type=int, default=20, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
     parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
     parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
@@ -79,7 +83,10 @@ def main():
 
     # Environment setup
     def make_env():
-        env = SimpleEnv(render_mode=None, max_steps=args.max_timesteps)  # Create the base environment
+        if args.use_smallenv:
+            env = SimpleEnv2(render_mode=None, max_steps=args.max_timesteps)  # Create the base environment
+        else:
+            env = SimpleEnv(render_mode=None, max_steps=args.max_timesteps)  # Create the base environment
         if args.use_wrapper:
             wrapped_env = EnvWrapper(env, "constraints.yaml")  # Wrap with constraint handler
             return wrapped_env
@@ -88,7 +95,10 @@ def main():
         
     # Environment setup for video recording
     def make_env_for_video():
-        env = SimpleEnv(render_mode='rgb_array')  # Enable rgb_array mode for video recording
+        if args.use_smallenv:
+            env = SimpleEnv2(render_mode='rgb_array', max_steps=args.max_timesteps)  # Create the base environment
+        else:
+            env = SimpleEnv(render_mode='rgb_array', max_steps=args.max_timesteps)  # Enable rgb_array mode for video recording
         if args.use_wrapper:
             wrapped_env = EnvWrapper(env, "constraints.yaml")
             return wrapped_env
@@ -148,7 +158,7 @@ def main():
             if args.use_attention:
                 constraints = torch.tensor(constraints, dtype=torch.float32).to(device)  # Convert to tensor
 
-            for t in range(args.max_timesteps):
+            for t_step in range(args.max_timesteps):
                 timestep += 1
 
                 # Select action (pass constraints if using attention)
@@ -156,6 +166,9 @@ def main():
 
                 # Step environment
                 next_state, reward, terminated, truncated, _ = env.step(action)
+
+                if reward != -0.1:
+                    print(reward)
 
                 # Store transition
                 ppo_agent.buffer.rewards.append(reward)
@@ -170,10 +183,20 @@ def main():
                     ppo_agent.update()
                     timestep = 0
 
-                if terminated:
-                    success_train += 1
+                if args.use_smallenv:
+                    if "iron_sword" in env.inventory:
+                        success_train += 1
+                else:
+                    if "treasure" in env.inventory:
+                        success_train += 1
 
-                if terminated or truncated:
+                if terminated:
+                    # print("terminated")
+                    # print(t)
+                    break
+                if truncated:
+                    # print("truncated")
+                    # print(t)
                     break
 
             # TensorBoard logging for training
@@ -237,19 +260,8 @@ def main():
 
     # Testing function
     def test_agent(env, agent):
-        test_agent_policy = PPO(
-            state_dim=combined_shape[0],
-            action_dim=action_space.n,
-            lr_actor=args.lr_actor,
-            lr_critic=args.lr_critic,
-            gamma=args.gamma,
-            K_epochs=args.K_epochs,
-            eps_clip=args.eps_clip,
-            use_attention=args.use_attention,
-            attention_net=AttentionNet(state_dim=combined_shape[0], constraint_dim=constraint_dim) if args.use_attention else None
-        )
-
-        test_agent_policy.policy.load_state_dict(agent.policy.state_dict())
+        test_agent_policy = agent
+   
         rewards = []
         successes = 0
 
@@ -260,7 +272,7 @@ def main():
             truncated = False
 
             for j in range(args.max_timesteps):
-                action = test_agent_policy.select_action(state)
+                action = test_agent_policy.select_action(state, testing = True)
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 cumulative_reward += reward
                 state = next_state
@@ -269,8 +281,12 @@ def main():
                     break
 
             rewards.append(cumulative_reward)
-            if "treasure" in env.inventory:
-                successes += 1
+            if args.use_smallenv:
+                if "iron_sword" in env.inventory:
+                    successes += 1
+            else:
+                if "treasure" in env.inventory:
+                    successes += 1
 
         success_rate = successes / args.n_test_episodes
         return rewards, success_rate
