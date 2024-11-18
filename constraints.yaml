@@ -1,8 +1,8 @@
 hint_constraints:
   - "inventory(iron_sword) > 0"
   - "inventory(iron_sword) = 0"
-  - "holding(iron_sword)"
-  - "not holding(iron_sword)"
+  # - "holding(iron_sword)"
+  # - "not holding(iron_sword)"
   - "inventory(iron) > 0"
   - "inventory(iron) = 0"
   - "facing(iron_ore)"
