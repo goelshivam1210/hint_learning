@@ -293,7 +293,7 @@ def main():
 
     # Start training
     train()
-    return log_dir
+    return log_dir, args
 
 if __name__ == "__main__":
     main()
