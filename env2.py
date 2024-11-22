@@ -3,10 +3,11 @@ import gymnasium as gym
 from gymnasium.utils import seeding
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
-from minigrid.core.world_object import Ball, Box
+from minigrid.core.world_object import Ball, Box, Floor
 from minigrid.minigrid_env import MiniGridEnv
 from aenum import Enum
 from aenum import extend_enum
+from minigrid.core.constants import COLOR_NAMES
 import pygame
 import numpy as np
 
@@ -112,7 +113,14 @@ class SimpleEnv2(MiniGridEnv):
     def _gen_grid(self, width, height):
         # Create an empty grid and build the walls
         self.grid = Grid(width, height)
+
         self.grid.wall_rect(0, 0, width, height)
+
+        for i in range(self.width):
+            for j in range(self.width):
+                obj = self.grid.get(i, j)
+                if isinstance(obj, Floor):
+                    self.grid.set(i, j, None)
 
         # Place resources and other objects on the grid
         self.place_obj(Resource("red", "iron_ore"), top=(0, 0))
@@ -147,13 +155,19 @@ class SimpleEnv2(MiniGridEnv):
         # Define the angles for each beam
         angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
 
+        for i in range(self.width):
+            for j in range(self.width):
+                obj = self.grid.get(i, j)
+                if isinstance(obj, Floor):
+                    self.grid.set(i, j, Floor("grey"))
+
         # Loop through each beam
         for i, angle in enumerate(angles):
             x, y = self.agent_pos  # Start position of the agent
             x_ratio, y_ratio = np.cos(angle), np.sin(angle)
 
             # Continue shooting the beam until it hits a wall or exits the grid
-            for beam_range in range(1, self.grid.width + 1):  # Maximum range based on the grid size
+            for beam_range in range(1, self.grid.width * 2):  # Maximum range based on the grid size
                 x_obj = int(x + beam_range * x_ratio)
                 y_obj = int(y + beam_range * y_ratio)
 
@@ -163,19 +177,22 @@ class SimpleEnv2(MiniGridEnv):
 
                 # Get the object at the current beam position
                 obj = self.grid.get(x_obj, y_obj)
+                if isinstance(obj, Floor):
+                    self.grid.set(x_obj, y_obj, Floor("yellow"))
 
                 if obj is not None:
                     # Get the index of the detected object
-                    closest_entity_idx = self.get_entity_index(obj)
+                    if not isinstance(obj, Floor):
+                        closest_entity_idx = self.get_entity_index(obj)
                     
-                    # Record the distance in the corresponding beam and object type channel
-                    if lidar_obs[i, closest_entity_idx] == 0:  # Only update if no previous object was detected on this beam
-                        lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize the distance
+                        # Record the distance in the corresponding beam and object type channel
+                        if lidar_obs[i, closest_entity_idx] == 0:  # Only update if no previous object was detected on this beam
+                            lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize the distance
 
                 # Stop the beam if the object is a wall (can_occlude)
                     if obj.type == "wall":  # Checking if the object is a wall by its type
                         break  # Stop the beam as it hit a wall
-
+        
         return lidar_obs
 
     def get_entity_index(self, obj):
@@ -344,6 +361,12 @@ class SimpleEnv2(MiniGridEnv):
 
         self._gen_grid(self.width, self.height)
         self.place_agent()
+        for i in range(self.width):
+            for j in range(self.width):
+                obj = self.grid.get(i, j)
+                if obj is None:
+                    self.grid.set(i, j, Floor("grey"))
+
         if self.agent_dir is None:
             self.agent_dir = 0  # Default to facing north if not specified
 
@@ -415,8 +438,8 @@ class CustomManualControl:
 
         key_to_action = {
             "left": SimpleEnv2.Actions.turn_left.value,
-            "right": SimpleEnv2.Actions.turn_right.value,
-            "up": SimpleEnv2.Actions.move_forward.value,
+            "up": SimpleEnv2.Actions.turn_right.value,
+            "right": SimpleEnv2.Actions.move_forward.value,
             "space": SimpleEnv2.Actions.toggle.value,
             "s": SimpleEnv2.Actions.craft_sword.value,  # 'c' for craft sword
             }
