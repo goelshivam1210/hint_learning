@@ -6,10 +6,11 @@ import argparse
 from gymnasium.wrappers import RecordVideo
 from torch.utils.tensorboard import SummaryWriter
 from ppo import PPO
+import yaml
 
 # Import environment and wrapper
 from editedenv import SimpleEnv
-from env2 import SimpleEnv2
+from env2 import SimpleEnv2, RewardType
 
 from env_wrapper import EnvWrapper
 
@@ -19,11 +20,11 @@ from attention_net_own import AttentionNet
 # Parse arguments
 def parse_args():
     parser = argparse.ArgumentParser(description='Train PPO with optional attention and environment wrapping.')
-
     # Environment and attention flags
     parser.add_argument('--use-wrapper', action='store_true', help='Use environment wrapper with constraint encoding.')
     parser.add_argument('--use-attention', action='store_true', help='Use attention mechanism in PPO.')
     parser.add_argument('--use-smallenv', action='store_true', help='Use environment with smaller action space')
+    parser.add_argument('--use-dense', action='store_true', help='Use dense reward function')
 
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
 
@@ -33,6 +34,7 @@ def parse_args():
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=80, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
+    parser.add_argument('--grid_size', type=int, default=10, help='Size of the gridworld')
     parser.add_argument('--max_episodes', type=int, default=10000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
     parser.add_argument('--update_timestep', type=int, default=1000, help='Timesteps after which PPO update is triggered.')
@@ -81,12 +83,18 @@ def main():
     log_dir = os.path.join(base_dir, "logs")
     writer = SummaryWriter(log_dir)
 
+    # Sample data (Python dictionary)
+    param_dict = vars(args)
+
+    with open(os.path.join(base_dir, "params.yaml"), 'w') as file:
+        yaml.dump(param_dict, file)
+
     # Environment setup
     def make_env():
         if args.use_smallenv:
-            env = SimpleEnv2(render_mode=None, max_steps=args.max_timesteps)  # Create the base environment
+            env = SimpleEnv2(render_mode=None, max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Create the base environment
         else:
-            env = SimpleEnv(render_mode=None, max_steps=args.max_timesteps)  # Create the base environment
+            env = SimpleEnv(render_mode=None, max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Create the base environment
         if args.use_wrapper:
             wrapped_env = EnvWrapper(env, "constraints.yaml")  # Wrap with constraint handler
             return wrapped_env
@@ -96,9 +104,9 @@ def main():
     # Environment setup for video recording
     def make_env_for_video():
         if args.use_smallenv:
-            env = SimpleEnv2(render_mode='rgb_array', max_steps=args.max_timesteps)  # Create the base environment
+            env = SimpleEnv2(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Create the base environment
         else:
-            env = SimpleEnv(render_mode='rgb_array', max_steps=args.max_timesteps)  # Enable rgb_array mode for video recording
+            env = SimpleEnv(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Enable rgb_array mode for video recording
         if args.use_wrapper:
             wrapped_env = EnvWrapper(env, "constraints.yaml")
             return wrapped_env

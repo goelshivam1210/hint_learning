@@ -64,6 +64,7 @@ pyparsing=3.1.2=pypi_0
 python=3.11.4=h955ad1f_0
 python-dateutil=2.9.0.post0=pypi_0
 pytz=2024.1=pypi_0
+pyyaml=6.0.2
 readline=8.2=h5eee18b_0
 sensai-utils=1.2.1=pypi_0
 setuptools=72.1.0=py311h06a4308_0
