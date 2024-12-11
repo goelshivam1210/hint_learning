@@ -91,7 +91,8 @@ class SimpleEnv2(MiniGridEnv):
             # Set up observation space based on lidar and inventory
             self.observation_space = gym.spaces.Dict({
                 "lidar": gym.spaces.Box(low=0, high=1, shape=lidar_shape, dtype=np.float32),
-                "inventory": gym.spaces.MultiDiscrete([10] * len(self.inventory_items))  # Max 10 of each item
+                "inventory": gym.spaces.MultiDiscrete([10] * len(self.inventory_items)),  # Max 10 of each item
+                "agent_dir": gym.spaces.Discrete(4)
             })
 
             # print(f"Observation space set up: {self.observation_space}")
@@ -224,7 +225,7 @@ class SimpleEnv2(MiniGridEnv):
         # print(f"Debug: Inventory Observation Shape: {inventory_obs.shape}")
 
         # Concatenate lidar and inventory observations
-        combined_obs = np.concatenate((lidar_obs, inventory_obs), axis=0).astype(np.float32)
+        combined_obs = np.concatenate([lidar_obs, inventory_obs, [self.agent_dir]], axis=0).astype(np.float32)
         # print(f"Debug: Combined Observation Shape: {combined_obs.shape}")
 
         return combined_obs
