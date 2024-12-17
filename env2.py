@@ -55,7 +55,8 @@ class SimpleEnv2(MiniGridEnv):
             self.collected_resources_global = set()
 
             # Updated the resource_names to reflect only non-collected world items
-            self.resource_names = ["iron_ore", "tree", "crafting_table", "wall"]
+            self.resource_names = ["iron_ore", "tree", "crafting_table", "wall"]  # For lidar and inventory
+            self.facing_objects = self.resource_names + ["nothing"]  # Include "nothing" for facing logic
 
             # Inventory for collected items
             self.inventory_items = ["iron", "wood", "iron_sword"]
@@ -84,28 +85,19 @@ class SimpleEnv2(MiniGridEnv):
             self.action_space = gym.spaces.Discrete(len(self.Actions))
             # print (f"Actions space in the constructor = {self.action_space}")
 
-                    # Initialize lidar and inventory observation shapes
-            lidar_shape = (8, len(self.resource_names))  # 8 lidar beams, each detecting one of the entities
-            inventory_shape = (len(self.inventory_items),)
+        # Calculate observation space dimensions
+            lidar_shape = 8 * len(self.resource_names)  # Flattened lidar
+            inventory_shape = len(self.inventory_items)  # Inventory items
+            facing_object_shape = len(self.facing_objects)  # One-hot vector for facing object
+            total_obs_dim = lidar_shape + inventory_shape + facing_object_shape
 
-            # Set up observation space based on lidar and inventory
-            self.observation_space = gym.spaces.Dict({
-                "lidar": gym.spaces.Box(low=0, high=1, shape=lidar_shape, dtype=np.float32),
-                "inventory": gym.spaces.MultiDiscrete([10] * len(self.inventory_items)),  # Max 10 of each item
-                "agent_dir": gym.spaces.Discrete(4)
-            })
-
-            # print(f"Observation space set up: {self.observation_space}")
-
-            # Adjusted lidar observation to focus on the non-collected world items
-            lidar_shape = (8, len(self.resource_names))  # 8 beams, each detecting one of the 8 possible entities
-            self.observation_space = gym.spaces.Dict({
-                "lidar": gym.spaces.Box(low=0, high=1, shape=lidar_shape, dtype=np.float32),
-                "inventory": gym.spaces.MultiDiscrete([10] * len(self.inventory_items))  # Maximum 10 of each item in inventory
-
-            })
-
-
+            # Set observation space to a flat Box
+            self.observation_space = gym.spaces.Box(
+                low=0,
+                high=1,
+                shape=(total_obs_dim,),
+                dtype=np.float32
+            )
 
     @staticmethod
     def _gen_mission():
@@ -215,17 +207,47 @@ class SimpleEnv2(MiniGridEnv):
                 index = self.inventory_items.index(item)
                 inventory_obs[index] += 1
         return inventory_obs
+    
+    def get_facing_object_one_hot(self):
+        """
+        Get a one-hot encoding representing the object the agent is facing.
+        Includes "nothing" if the agent is facing an empty cell.
+        Returns:
+            np.ndarray: One-hot encoding of the object the agent is facing.
+        """
+        fwd_pos = self.front_pos  # Position directly in front of the agent
+        fwd_cell = self.grid.get(*fwd_pos)  # Get the object at that position
+
+        # Initialize a zeroed one-hot vector
+        one_hot = np.zeros(len(self.facing_objects), dtype=np.float32)
+
+        # Determine the index of the object if present
+        if fwd_cell is not None:
+            if isinstance(fwd_cell, Resource):
+                obj_index = self.facing_objects.index(fwd_cell.resource_name)
+            elif isinstance(fwd_cell, Box):
+                obj_index = self.facing_objects.index("crafting_table")
+            else:
+                obj_index = self.facing_objects.index("wall")
+        else:
+            # If no object, set index for "nothing"
+            obj_index = self.facing_objects.index("nothing")
+
+        one_hot[obj_index] = 1  # Set the corresponding index to 1
+
+        return one_hot
 
     def get_obs(self):
         lidar_obs = self.get_lidar_observation().flatten().astype(np.float32)   # Flatten lidar
         inventory_obs = self.get_inventory_observation().astype(np.float32)
+        facing_object_one_hot = self.get_facing_object_one_hot()  # Get one-hot encoding for facing object
 
         # Debugging prints for lidar and inventory shapes
         # print(f"Debug: Lidar Observation Shape: {lidar_obs.shape}")
         # print(f"Debug: Inventory Observation Shape: {inventory_obs.shape}")
 
         # Concatenate lidar and inventory observations
-        combined_obs = np.concatenate([lidar_obs, inventory_obs, [self.agent_dir]], axis=0).astype(np.float32)
+        combined_obs = np.concatenate([lidar_obs, inventory_obs, facing_object_one_hot], axis=0).astype(np.float32)
         # print(f"Debug: Combined Observation Shape: {combined_obs.shape}")
 
         return combined_obs

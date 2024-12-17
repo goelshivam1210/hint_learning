@@ -1,5 +1,7 @@
 import os
+import random
 import torch
+import torch.nn as nn
 import numpy as np
 from datetime import datetime
 import argparse
@@ -29,24 +31,37 @@ def parse_args():
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
 
     # Hyperparameters
-    parser.add_argument('--lr-actor', type=float, default=0.0003, help='Learning rate for the actor.')
-    parser.add_argument('--lr-critic', type=float, default=0.001, help='Learning rate for the critic.')
+    parser.add_argument('--lr-actor', type=float, default=3e-4, help='Learning rate for the actor.')
+    parser.add_argument('--lr-critic', type=float, default=1e-3, help='Learning rate for the critic.')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
-    parser.add_argument('--K-epochs', type=int, default=80, help='Number of PPO epochs per update.')
+    parser.add_argument('--K-epochs', type=int, default=4, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
     parser.add_argument('--grid_size', type=int, default=10, help='Size of the gridworld')
-    parser.add_argument('--max_episodes', type=int, default=10000, help='Maximum number of training episodes.')
-    parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
-    parser.add_argument('--update_timestep', type=int, default=1000, help='Timesteps after which PPO update is triggered.')
+    parser.add_argument('--max_episodes', type=int, default=25000, help='Maximum number of training episodes.')
+    parser.add_argument('--max_timesteps', type=int, default=600, help='Maximum number of timesteps per episode.')
+    parser.add_argument('--update_timestep', type=int, default=2000, help='Timesteps after which PPO update is triggered.')
+    parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
     parser.add_argument('--save_interval', type=int, default=1000, help='Interval to save the model.')
     parser.add_argument('--log_interval', type=int, default=10, help='Interval to log training progress.')
-    parser.add_argument('--test_interval', type=int, default=20, help='Interval to test the agent.')
+    parser.add_argument('--test_interval', type=int, default=250, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
     parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
     parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
 
     args = parser.parse_args()
     return args
+
+def set_seed(seed):
+    """
+    Set the random seed for Python, NumPy, PyTorch, and CUDA.
+    """
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    print(f"Global seed set to: {seed}")
 
 
 # Utility function to flatten dict observation space for the unwrapped environment
@@ -59,10 +74,28 @@ def flatten_obs_space(obs_dict):
         # If it's already flattened, return it as is
         return obs_dict
 
+def get_network_architecture(model):
+    """Extract network architecture from a PyTorch model."""
+    architecture = []
+    for layer in model:
+        layer_info = {"layer_type": type(layer).__name__}
+        if isinstance(layer, nn.Linear):
+            layer_info["in_features"] = int(layer.in_features)  # Python int
+            layer_info["out_features"] = int(layer.out_features)  # Python int
+        elif isinstance(layer, nn.ReLU) or isinstance(layer, nn.Tanh):
+            layer_info["activation"] = type(layer).__name__
+        elif isinstance(layer, nn.Softmax):
+            layer_info["dim"] = int(layer.dim)  # Python int
+        # Add other layer types as needed
+        architecture.append(layer_info)
+    return architecture
 
 # Main function
 def main():
     args = parse_args()
+    
+    # Set global seed
+    set_seed(args.seed)
 
     # Set device
     device = torch.device(args.device)
@@ -83,23 +116,37 @@ def main():
     log_dir = os.path.join(base_dir, "logs")
     writer = SummaryWriter(log_dir)
 
-    # Sample data (Python dictionary)
-    param_dict = vars(args)
+    # # Sample data (Python dictionary)
+    # param_dict = vars(args)
 
-    with open(os.path.join(base_dir, "params.yaml"), 'w') as file:
-        yaml.dump(param_dict, file)
+    # with open(os.path.join(base_dir, "params.yaml"), 'w') as file:
+    #     yaml.dump(param_dict, file)
 
     # Environment setup
-    def make_env():
+    def make_env(seed=None):
         if args.use_smallenv:
-            env = SimpleEnv2(render_mode=None, max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Create the base environment
+            env = SimpleEnv2(
+                render_mode=None, 
+                max_steps=args.max_timesteps, 
+                reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, 
+                size=args.grid_size
+            )
         else:
-            env = SimpleEnv(render_mode=None, max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Create the base environment
+            env = SimpleEnv(
+                render_mode=None, 
+                max_steps=args.max_timesteps, 
+                reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, 
+                size=args.grid_size
+            )
+        
+        if seed is not None:
+            env.reset(seed=seed)
+
         if args.use_wrapper:
-            wrapped_env = EnvWrapper(env, "constraints.yaml")  # Wrap with constraint handler
+            wrapped_env = EnvWrapper(env, "constraints.yaml")
             return wrapped_env
         else:
-            return env  # Return the base environment without wrapping
+            return env
         
     # Environment setup for video recording
     def make_env_for_video():
@@ -113,9 +160,10 @@ def main():
         else:
             return env
 
-    env = make_env()
-    test_env = make_env()
-    dummy_env = make_env()
+    # Create environments
+    env = make_env(seed=args.seed)
+    test_env = make_env(seed=args.seed)
+    dummy_env = make_env(seed=args.seed)
     action_space = dummy_env.action_space
 
     # Handle observation space shape for wrapped and unwrapped cases
@@ -150,6 +198,19 @@ def main():
         attention_net=AttentionNet(state_dim=combined_shape[0], constraint_dim=constraint_dim) if args.use_attention else None
     )
 
+    # Extract actor and critic architectures
+    actor_architecture = get_network_architecture(ppo_agent.policy.actor)
+    critic_architecture = get_network_architecture(ppo_agent.policy.critic)
+
+    # Add the architectures to the parameter dictionary
+    param_dict = vars(args)  # Use the arguments as base parameters
+    param_dict["actor_network"] = actor_architecture
+    param_dict["critic_network"] = critic_architecture
+
+    # Save the parameters and architectures to the YAML file
+    with open(os.path.join(base_dir, "params.yaml"), 'w') as file:
+        yaml.dump(param_dict, file)
+
     # Training Loop
     def train():
         timestep = 0
@@ -158,6 +219,7 @@ def main():
         converged = False
         for episode in range(1, args.max_episodes + 1):
             state, _ = env.reset()
+            state = (state - state.mean()) / state.std()
 
             cumulative_reward = 0
 
@@ -175,8 +237,9 @@ def main():
                 # Step environment
                 next_state, reward, terminated, truncated, _ = env.step(action)
 
-                if reward != -0.1:
-                    print(reward)
+                next_state = (next_state - next_state.mean()) / next_state.std()
+                # if reward != -0.1:
+                #     print(reward)
 
                 # Store transition
                 ppo_agent.buffer.rewards.append(reward)
@@ -193,6 +256,7 @@ def main():
 
                 if args.use_smallenv:
                     if "iron_sword" in env.inventory:
+                        print ("Goal state reached!")
                         success_train += 1
                 else:
                     if "treasure" in env.inventory:

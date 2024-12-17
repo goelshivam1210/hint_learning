@@ -29,22 +29,75 @@ class ActorCritic(nn.Module):
         self.attention_net = attention_net
         
         # Actor network for discrete action space
-        self.actor = nn.Sequential(
-            nn.Linear(state_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 64),
-            nn.Tanh(),
-            nn.Linear(64, action_dim),
-            nn.Softmax(dim=-1)
-        )
+        # self.actor = nn.Sequential(
+        #     nn.Linear(state_dim, 64),
+        #     nn.Tanh(),
+        #     nn.Linear(64, 64),
+        #     nn.Tanh(),
+        #     nn.Linear(64, action_dim),
+        #     nn.Softmax(dim=-1)
+        # )
 
-        # Critic network
+        # # Critic network
+        # self.critic = nn.Sequential(
+        #     nn.Linear(state_dim, 64),
+        #     nn.Tanh(),
+        #     nn.Linear(64, 64),
+        #     nn.Tanh(),
+        #     nn.Linear(64, 1)
+        # )
+
+        # # Actor network
+        # self.actor = nn.Sequential(
+        #     nn.Linear(state_dim, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, action_dim),
+        #     nn.Softmax(dim=-1)
+        # )
+
+        # # Critic network
+        # self.critic = nn.Sequential(
+        #     nn.Linear(state_dim, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, 1)
+        # )
+
+        # self.actor = nn.Sequential(
+        #     nn.Linear(state_dim, 256),  # Input to 256 neurons
+        #     nn.ReLU(),
+        #     nn.Linear(256, 64),         # 256 to 64 neurons
+        #     nn.ReLU(),
+        #     nn.Linear(64, action_dim),  # 64 to number of actions
+        #     nn.Softmax(dim=-1)
+        # )
+
+        # self.critic = nn.Sequential(
+        #     nn.Linear(state_dim, 256),  # Input to 256 neurons
+        #     nn.ReLU(),
+        #     nn.Linear(256, 64),         # 256 to 64 neurons
+        #     nn.ReLU(),
+        #     nn.Linear(64, 1)            # 64 to single value (state value)
+        # )
+
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, 128),  # Input layer -> Hidden layer: 128
+            nn.ReLU(),
+            nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
+            nn.ReLU(),
+            nn.Linear(64, action_dim),    # Output layer: 64 -> Action space: 5
+            nn.Softmax(dim=-1) 
+          )  # Output probabilities
+
         self.critic = nn.Sequential(
-            nn.Linear(state_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 64),
-            nn.Tanh(),
-            nn.Linear(64, 1)
+            nn.Linear(state_dim, 128),  # Input layer: 40 -> Hidden layer: 128
+            nn.ReLU(),
+            nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
+            nn.ReLU(),
+            nn.Linear(64, 1)     # Output layer: 64 -> Single value (state value)
         )
     
     def forward(self):
