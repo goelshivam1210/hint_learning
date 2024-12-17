@@ -9,13 +9,11 @@ class EnvWrapper(Wrapper):
         super(EnvWrapper, self).__init__(env)
         self.constraints = self.load_constraints(constraint_file)
 
-        # Calculate the shape of the original observation space
-        lidar_shape = np.prod(self.env.observation_space["lidar"].shape)  # Flatten lidar
-        inventory_shape = self.env.observation_space["inventory"].shape[0]
+        # print ("self.env.observation_space = {}".format(self.env.observation_space.shape[0]))
         constraint_shape = len(self.constraints)
 
         # Correct the total observation shape: lidar (flattened) + inventory + constraints
-        total_obs_shape = lidar_shape + inventory_shape + constraint_shape
+        total_obs_shape = self.env.observation_space.shape[0] + constraint_shape
         
         # Update observation space to account for the flattened shape and constraints
         self.observation_space = gym.spaces.Box(
@@ -101,25 +99,23 @@ class EnvWrapper(Wrapper):
         return augmented_state, reward, done, truncated, info
 
     def _augment_state_with_constraints(self, state):
-        # Assuming the first part of the state is lidar and the second part is inventory
-        lidar_len = 8 * len(self.env.resource_names)  # 8 beams * number of resource types
-        inventory_len = len(self.env.inventory_items)
+        # Total lidar, inventory, and facing dimensions from environment
+        lidar_len = 8 * len(self.env.resource_names)       # 32
+        inventory_len = len(self.env.inventory_items)      # 3
+        facing_len = len(self.env.facing_objects)          # 5
 
         # Slicing the flat state array
-        lidar_obs = state[:lidar_len].flatten().astype(np.float32)
-        inventory_obs = state[lidar_len:lidar_len + inventory_len].astype(np.float32)
-
-        # Debug prints to verify shapes
-        # print(f"Debug: Lidar Observation Length: {lidar_len}, Inventory Observation Length: {inventory_len}")
-        # print(f"Debug: Lidar Obs Shape: {lidar_obs.shape}, Inventory Obs Shape: {inventory_obs.shape}")
+        lidar_obs = state[:lidar_len].flatten().astype(np.float32)  # First 32
+        inventory_obs = state[lidar_len:lidar_len + inventory_len].astype(np.float32)  # Next 3
+        facing_obs = state[lidar_len + inventory_len:lidar_len + inventory_len + facing_len].astype(np.float32)  # Next 5
 
         # Encode constraints as a one-hot vector
         constraint_encoding = self.encode_constraints()
-        # print(f"Debug: Constraints Encoding: {constraint_encoding}")    
+        # print(f"Debug: Constraints Encoding Shape: {constraint_encoding.shape}, Values: {constraint_encoding}")
+        # print(f"Debug: Lidar Obs Shape: {lidar_obs.shape}, Inventory Obs Shape: {inventory_obs.shape}, Facing Obs Shape: {facing_obs.shape}")
 
-
-        # Concatenate the original state with the constraint encoding
-        augmented_state = np.concatenate((lidar_obs, inventory_obs, constraint_encoding), axis=-1)
+        # Concatenate the original state (lidar, inventory, facing) with the constraint encoding
+        augmented_state = np.concatenate((lidar_obs, inventory_obs, facing_obs, constraint_encoding), axis=-1)
         # print(f"Debug: Augmented State Shape: {augmented_state.shape}")
 
         return augmented_state

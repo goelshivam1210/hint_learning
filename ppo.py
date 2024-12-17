@@ -108,6 +108,10 @@ class ActorCritic(nn.Module):
         if self.attention_net and constraints is not None:
             state = self.attention_net(state, constraints)
         
+        # Ensure state has at least 2 dimensions: [1, input_features]
+        if state.dim() == 1:
+            state = state.unsqueeze(0)  # Add batch dimension
+
         action_probs = self.actor(state)
         dist = Categorical(action_probs)
         action = dist.sample()
@@ -159,6 +163,8 @@ class PPO:
             self.buffer.states.append(state)
             self.buffer.actions.append(action)
             self.buffer.logprobs.append(action_logprob)
+
+        # print(f"State shape before actor: {state.shape}")
         
         return action.item()
 
