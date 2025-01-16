@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument('--K-epochs', type=int, default=4, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
     parser.add_argument('--grid_size', type=int, default=10, help='Size of the gridworld')
-    parser.add_argument('--max_episodes', type=int, default=25000, help='Maximum number of training episodes.')
+    parser.add_argument('--max_episodes', type=int, default=30000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=600, help='Maximum number of timesteps per episode.')
     parser.add_argument('--update_timestep', type=int, default=2000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
@@ -223,13 +223,20 @@ def main():
 
             cumulative_reward = 0
 
-            # Encode constraints (if using attention)
-            constraints = dummy_env.encode_constraints() if args.use_attention else None
-            if args.use_attention:
-                constraints = torch.tensor(constraints, dtype=torch.float32).to(device)  # Convert to tensor
+            # # Encode constraints (if using attention)
+            # constraints = dummy_env.encode_constraints() if args.use_attention else None
+            # if args.use_attention:
+            #     constraints = torch.tensor(constraints, dtype=torch.float32).to(device)  # Convert to tensor
 
             for t_step in range(args.max_timesteps):
                 timestep += 1
+
+                # Select action (pass constraints if using attention)
+                if args.use_attention:
+                    constraints = dummy_env.encode_constraints()
+                    constraints = torch.tensor(constraints, dtype=torch.float32).to(device)
+                else:
+                    constraints = None
 
                 # Select action (pass constraints if using attention)
                 action = ppo_agent.select_action(state, constraints=constraints)
@@ -343,8 +350,14 @@ def main():
             terminated = False
             truncated = False
 
+            if args.use_attention:
+                constraints = dummy_env.encode_constraints()
+                constraints = torch.tensor(constraints, dtype=torch.float32).to(device)
+            else:
+                constraints = None
+
             for j in range(args.max_timesteps):
-                action = test_agent_policy.select_action(state, testing = True)
+                action = test_agent_policy.select_action(state, constraints=constraints, testing=True)
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 cumulative_reward += reward
                 state = next_state
