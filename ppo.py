@@ -83,22 +83,49 @@ class ActorCritic(nn.Module):
         #     nn.Linear(64, 1)            # 64 to single value (state value)
         # )
 
+                # Actor network
         self.actor = nn.Sequential(
             nn.Linear(state_dim, 128),  # Input layer -> Hidden layer: 128
             nn.ReLU(),
-            nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
+            nn.LayerNorm(128),         # Normalize activations
+            nn.Dropout(0.1),           # Dropout for regularization
+            nn.Linear(128, 64),        # Hidden layer: 128 -> Hidden layer: 64
             nn.ReLU(),
-            nn.Linear(64, action_dim),    # Output layer: 64 -> Action space: 5
-            nn.Softmax(dim=-1) 
-          )  # Output probabilities
+            nn.LayerNorm(64),
+            nn.Dropout(0.1),
+            nn.Linear(64, action_dim),  # Output layer: 64 -> Action space
+            nn.Softmax(dim=-1)         # Output probabilities
+        )
 
+                # Critic network
         self.critic = nn.Sequential(
             nn.Linear(state_dim, 128),  # Input layer: 40 -> Hidden layer: 128
             nn.ReLU(),
-            nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
+            nn.LayerNorm(128),
+            nn.Dropout(0.1),
+            nn.Linear(128, 64),        # Hidden layer: 128 -> Hidden layer: 64
             nn.ReLU(),
-            nn.Linear(64, 1)     # Output layer: 64 -> Single value (state value)
+            nn.LayerNorm(64),
+            nn.Dropout(0.1),
+            nn.Linear(64, 1)           # Output layer: 64 -> Single value (state value)
         )
+
+        # self.actor = nn.Sequential(
+        #     nn.Linear(state_dim, 128),  # Input layer -> Hidden layer: 128
+        #     nn.ReLU(),
+        #     nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
+        #     nn.ReLU(),
+        #     nn.Linear(64, action_dim),    # Output layer: 64 -> Action space: 5
+        #     nn.Softmax(dim=-1) 
+        #   )  # Output probabilities
+
+        # self.critic = nn.Sequential(
+        #     nn.Linear(state_dim, 128),  # Input layer: 40 -> Hidden layer: 128
+        #     nn.ReLU(),
+        #     nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
+        #     nn.ReLU(),
+        #     nn.Linear(64, 1)     # Output layer: 64 -> Single value (state value)
+        # )
     
     def forward(self):
         raise NotImplementedError

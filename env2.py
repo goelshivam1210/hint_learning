@@ -32,7 +32,7 @@ class SimpleEnv2(MiniGridEnv):
 
     def __init__(
             self,
-            size=10,
+            size=7,
             agent_start_pos=(1, 1),
             agent_start_dir=0,
             reward_type: RewardType = RewardType.SPARSE,
@@ -141,18 +141,31 @@ class SimpleEnv2(MiniGridEnv):
         else:
             self.place_agent()  # Place the agent randomly if no start position is specified
 
+    def validate_lidar_consistency(self, lidar_obs):
+
+        for beam_idx, beam in enumerate(lidar_obs):
+            for obj_idx, distance in enumerate(beam):
+                if distance > 0:  # Object detected in this beam
+                    expected_obj = self.resource_names[obj_idx]
+                    if expected_obj not in self.resource_names:
+                        raise ValueError(
+                            f"Inconsistent object detected! Beam {beam_idx}, Obj Index {obj_idx}, "
+                            f"Detected Obj: {expected_obj} not in resource_names: {self.resource_names}"
+                        )
+        return True
+
     def get_lidar_observation(self):
+        """
+        Returns lidar observations aligned with the agent's orientation.
+        Each slot corresponds to a beam relative to the agent's facing direction.
+        """
         # Initialize the lidar observation matrix: 8 beams x number of object types
         lidar_obs = np.zeros((8, len(self.resource_names)), dtype=np.float32)
         
-        # Define the angles for each beam
-        angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
-
-        for i in range(self.width):
-            for j in range(self.width):
-                obj = self.grid.get(i, j)
-                if isinstance(obj, Floor):
-                    self.grid.set(i, j, Floor("grey"))
+        # Define angles for each beam relative to the agent's current direction
+        base_angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)  # Global angles for 8 beams
+        agent_angle = self.agent_dir * (np.pi / 2)  # Convert agent_dir to radians (90-degree steps)
+        angles = (base_angles + agent_angle) % (2 * np.pi)  # Rotate to align with agent's facing direction
 
         # Loop through each beam
         for i, angle in enumerate(angles):
@@ -171,21 +184,24 @@ class SimpleEnv2(MiniGridEnv):
                 # Get the object at the current beam position
                 obj = self.grid.get(x_obj, y_obj)
                 if isinstance(obj, Floor):
-                    self.grid.set(x_obj, y_obj, Floor("yellow"))
+                    self.grid.set(x_obj, y_obj, Floor("yellow"))  # For visualization purposes
 
                 if obj is not None:
                     # Get the index of the detected object
                     if not isinstance(obj, Floor):
                         closest_entity_idx = self.get_entity_index(obj)
-                    
+                        
                         # Record the distance in the corresponding beam and object type channel
                         if lidar_obs[i, closest_entity_idx] == 0:  # Only update if no previous object was detected on this beam
                             lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize the distance
 
-                # Stop the beam if the object is a wall (can_occlude)
+                    # Stop the beam if the object is a wall (can_occlude)
                     if obj.type == "wall":  # Checking if the object is a wall by its type
                         break  # Stop the beam as it hit a wall
-        
+
+        # **Validate consistency of lidar observations**
+        self.validate_lidar_consistency(lidar_obs)
+
         return lidar_obs
 
     def get_entity_index(self, obj):
