@@ -12,7 +12,7 @@ import yaml
 
 # Import environment and wrapper
 from editedenv import SimpleEnv
-from env2 import SimpleEnv2, RewardType
+from env2 import SimpleEnv2, RewardType, EnvType
 
 from env_wrapper import EnvWrapper
 
@@ -26,6 +26,7 @@ def parse_args():
     parser.add_argument('--use-wrapper', action='store_true', help='Use environment wrapper with constraint encoding.')
     parser.add_argument('--use-attention', action='store_true', help='Use attention mechanism in PPO.')
     parser.add_argument('--use-smallenv', action='store_true', help='Use environment with smaller action space')
+    parser.add_argument('--clutter', action='store_true', help='Use clutter (works with smaller action space)')
     parser.add_argument('--use-dense', action='store_true', help='Use dense reward function')
 
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
@@ -128,7 +129,8 @@ def main():
             env = SimpleEnv2(
                 render_mode=None, 
                 max_steps=args.max_timesteps, 
-                reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, 
+                reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE,
+                env_type=EnvType.CLUTTER if args.clutter else EnvType.PLAIN,
                 size=args.grid_size
             )
         else:
@@ -151,7 +153,7 @@ def main():
     # Environment setup for video recording
     def make_env_for_video():
         if args.use_smallenv:
-            env = SimpleEnv2(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Create the base environment
+            env = SimpleEnv2(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, env_type=EnvType.CLUTTER if args.clutter else EnvType.PLAIN, size=args.grid_size)  # Create the base environment
         else:
             env = SimpleEnv(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Enable rgb_array mode for video recording
         if args.use_wrapper:

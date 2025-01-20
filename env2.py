@@ -16,6 +16,10 @@ class RewardType(Enum):
     DENSE = "dense"
     SPARSE = "sparse"
 
+class EnvType(Enum):
+    PLAIN = "plain"
+    CLUTTER = "clutter"
+
 class Resource(Ball):
     """Custom Ball object with a resource name"""
     def __init__(self, color, resource_name):
@@ -36,6 +40,7 @@ class SimpleEnv2(MiniGridEnv):
             agent_start_pos=(1, 1),
             agent_start_dir=0,
             reward_type: RewardType = RewardType.SPARSE,
+            env_type: EnvType = EnvType.PLAIN,
             max_steps: int | None = None,
             max_reward_episodes: int = 50,  # Number of episodes with sword reward
             **kwargs,
@@ -45,6 +50,18 @@ class SimpleEnv2(MiniGridEnv):
             self.agent_start_pos = agent_start_pos
             self.agent_start_dir = agent_start_dir
             self.reward_type = reward_type
+            self.env_type = env_type
+
+            # Ores from which other types of sword can be crafted
+            self.clutter_ores = ["gold", "silver", "titanium", "platinum"]
+    
+            # If env_type is CLUTTER, extend the Actions enum with additional crafting actions
+            if self.env_type == EnvType.CLUTTER:
+                next_value = len(self.Actions)
+                for ore in self.clutter_ores:
+                    if f'craft_{ore}_sword' not in self.Actions._member_names_:
+                        extend_enum(self.Actions, f'craft_{ore}_sword', next_value)
+                        next_value += 1
 
             self.max_reward_episodes = max_reward_episodes  # Threshold for giving sword reward
             self.current_episode = 0  # Track the current episode
@@ -56,14 +73,24 @@ class SimpleEnv2(MiniGridEnv):
 
             # Updated the resource_names to reflect only non-collected world items
             self.resource_names = ["iron_ore", "tree", "crafting_table", "wall"]  # For lidar and inventory
+            if self.env_type == EnvType.CLUTTER:
+                for ore in self.clutter_ores:
+                    if f"{ore}_ore" not in self.resource_names:
+                        self.resource_names.append(f"{ore}_ore")
             self.facing_objects = self.resource_names + ["nothing"]  # Include "nothing" for facing logic
 
             # Inventory for collected items
             self.inventory_items = ["iron", "wood", "iron_sword"]
+            if self.env_type == EnvType.CLUTTER:
+                for ore in self.clutter_ores:
+                    if ore not in self.resource_names:
+                        self.inventory_items.append(ore)
+                        self.inventory_items.append(f"{ore}_sword")
 
             self.inventory = []
             mission_space = MissionSpace(mission_func=self._gen_mission)
 
+            # I presume we do not need to track clutter ores
             self.crafted_sword_episodes = 0
             self.collected_resource_episodes = {
                 "tree": 0,
@@ -117,6 +144,9 @@ class SimpleEnv2(MiniGridEnv):
 
         # Place resources and other objects on the grid
         self.place_obj(Resource("red", "iron_ore"), top=(0, 0))
+        if self.env_type == EnvType.CLUTTER:
+            for ore in self.clutter_ores:
+                self.place_obj(Resource("yellow", f"{ore}_ore"), top=(0, 0))
         self.place_obj(Resource("green", "tree"), top=(0, 0))
         self.place_obj(Box("blue"), top=(0, 0))    # Crafting table
 
@@ -315,6 +345,7 @@ class SimpleEnv2(MiniGridEnv):
             terminated = True
 
         # Action for crafting the sword
+        """
         if action == self.Actions.craft_sword.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
@@ -329,6 +360,34 @@ class SimpleEnv2(MiniGridEnv):
                     self.crafted_sword_episodes += 1
                     reward = 1000  # Large reward for finding the treasure (sparse reward)
                     terminated = True
+        """
+        if action == self.Actions.craft_sword.value or (
+            self.env_type == EnvType.CLUTTER and 
+            any(action == getattr(self.Actions, f'craft_{ore}_sword').value 
+                for ore in self.clutter_ores)
+        ):
+            fwd_pos = self.front_pos
+            fwd_cell = self.grid.get(*fwd_pos)
+
+            if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table
+                if action == self.Actions.craft_sword.value:
+                    if "wood" in self.inventory and "iron" in self.inventory and not self.sword_crafted:
+                        self.inventory.remove("wood")
+                        self.inventory.remove("iron")
+                        self.inventory.append("iron_sword")
+                        self.sword_crafted = True
+                        self.crafted_sword_episodes += 1
+                        reward = 1000
+                        terminated = True
+                
+                elif self.env_type == EnvType.CLUTTER:
+                    for ore in self.clutter_ores:
+                        if action == getattr(self.Actions, f'craft_{ore}_sword').value:
+                            if "wood" in self.inventory and ore in self.inventory:
+                                self.inventory.remove("wood")
+                                self.inventory.remove(ore)
+                                self.inventory.append(f"{ore}_sword")
+                            break
 
             return self.get_obs(), reward, terminated, truncated, {}
 
@@ -350,6 +409,10 @@ class SimpleEnv2(MiniGridEnv):
                     elif resource_name == "silver_ore":
                         self.inventory.append("silver")
                     elif resource_name == "gold_ore":
+                        self.inventory.append("gold")
+                    elif resource_name == "platinum_ore":
+                        self.inventory.append("gold")
+                    elif resource_name == "titanium_ore": # No harm in having these but could be more modular
                         self.inventory.append("gold")
                     elif resource_name == "tree":
                         self.inventory.append("wood")
@@ -484,12 +547,14 @@ class CustomManualControl:
             "s": SimpleEnv2.Actions.craft_sword.value,  # 'c' for craft sword
             }
         
+        # Add any actions in case extended env
         for member in self.env.Actions:
             if member.value not in key_to_action.values():
-                print(f"printing {chr(member.value + 97)}")
+                print(f"mapping action w/ {chr(member.value + 97)}")
                 key_to_action[chr(member.value + 97)] = member.value
 
         if key in key_to_action:
+            print(f"env.inventory: {self.env.inventory}")
             action = key_to_action[key]
             self.step(action)
         else:
@@ -497,7 +562,7 @@ class CustomManualControl:
 
 
 def main():
-    env = SimpleEnv2(render_mode="human")
+    env = SimpleEnv2(render_mode="human", env_type=EnvType.CLUTTER)
     manual_control = CustomManualControl(env, seed=42)
     manual_control.start()
 
