@@ -31,15 +31,15 @@ def parse_args():
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
 
     # Hyperparameters
-    parser.add_argument('--lr-actor', type=float, default=3e-4, help='Learning rate for the actor.')
-    parser.add_argument('--lr-critic', type=float, default=1e-3, help='Learning rate for the critic.')
+    parser.add_argument('--lr-actor', type=float, default=0.0003, help='Learning rate for the actor.')
+    parser.add_argument('--lr-critic', type=float, default=0.001, help='Learning rate for the critic.')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=5, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
     parser.add_argument('--grid_size', type=int, default=12, help='Size of the gridworld')
-    parser.add_argument('--max_episodes', type=int, default=30000, help='Maximum number of training episodes.')
-    parser.add_argument('--max_timesteps', type=int, default=100, help='Maximum number of timesteps per episode.')
-    parser.add_argument('--update_timestep', type=int, default=2000, help='Timesteps after which PPO update is triggered.')
+    parser.add_argument('--max_episodes', type=int, default=20000, help='Maximum number of training episodes.')
+    parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
+    parser.add_argument('--update_timestep', type=int, default=4000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
     parser.add_argument('--save_interval', type=int, default=10000, help='Interval to save the model.')
     parser.add_argument('--log_interval', type=int, default=1000, help='Interval to log training progress.')
@@ -213,6 +213,7 @@ def main():
 
     # Training Loop
     def train():
+        timsteps_per_episode = []
         timestep = 0
         success_train = 0
         success_window = []
@@ -230,7 +231,6 @@ def main():
 
             for t_step in range(args.max_timesteps):
                 timestep += 1
-
                 # Select action (pass constraints if using attention)
                 if args.use_attention:
                     constraints = dummy_env.encode_constraints()
@@ -256,10 +256,13 @@ def main():
                 state = next_state
                 cumulative_reward += reward
 
-                # PPO update
+                # # PPO update
+                # if timestep % args.update_timestep == 0:
+                #     ppo_agent.update()
+                #     timestep = 0
+
                 if timestep % args.update_timestep == 0:
                     ppo_agent.update()
-                    timestep = 0
 
                 if args.use_smallenv:
                     if "iron_sword" in env.inventory:
@@ -272,15 +275,18 @@ def main():
                 if terminated:
                     # print("terminated")
                     # print(t)
+                    timsteps_per_episode.append(t_step+1)
                     break
                 if truncated:
                     # print("truncated")
                     # print(t)
+                    timsteps_per_episode.append(t_step+1)
                     break
 
-            # TensorBoard logging for training
-            writer.add_scalar("Train/Reward", cumulative_reward, episode)
-            writer.add_scalar("Train/Success_Rate", success_train / episode, episode)
+            # TensorBoard logging
+            writer.add_scalar("Train/Reward", cumulative_reward, timestep)
+            writer.add_scalar("Train/Success_Rate", success_train / episode, timestep)
+            writer.add_scalar("Train/Timesteps_Per_Episode", np.mean(timsteps_per_episode), timestep)
 
             # Print and log
             if episode % args.log_interval == 0:
@@ -307,9 +313,14 @@ def main():
                     print(f"Converged with success rate: {np.mean(success_window):.2f}")
                     converged = True
 
-                writer.add_scalar("Test/Reward", np.mean(test_rewards), episode)
-                writer.add_scalar("Test/Success_Rate", success_rate, episode)
-                print(f"Test Results - Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
+                          # Log test metrics using total timesteps
+                writer.add_scalar("Test/Reward", np.mean(test_rewards), timestep)
+                writer.add_scalar("Test/Success_Rate", success_rate, timestep)
+                print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
+
+                # writer.add_scalar("Test/Reward", np.mean(test_rewards), episode)
+                # writer.add_scalar("Test/Success_Rate", success_rate, episode)
+                # print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
                 # Stop training if converged
                 if converged:
                     model_path = os.path.join(model_save_dir, f"ppo_model_converged.pth")

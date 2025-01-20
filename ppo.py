@@ -88,11 +88,11 @@ class ActorCritic(nn.Module):
             nn.Linear(state_dim, 128),  # Input layer -> Hidden layer: 128
             nn.ReLU(),
             nn.LayerNorm(128),         # Normalize activations
-            nn.Dropout(0.1),           # Dropout for regularization
+            # nn.Dropout(0.1),           # Dropout for regularization
             nn.Linear(128, 64),        # Hidden layer: 128 -> Hidden layer: 64
             nn.ReLU(),
             nn.LayerNorm(64),
-            nn.Dropout(0.1),
+            # nn.Dropout(0.1),
             nn.Linear(64, action_dim),  # Output layer: 64 -> Action space
             nn.Softmax(dim=-1)         # Output probabilities
         )
@@ -102,11 +102,11 @@ class ActorCritic(nn.Module):
             nn.Linear(state_dim, 128),  # Input layer: 40 -> Hidden layer: 128
             nn.ReLU(),
             nn.LayerNorm(128),
-            nn.Dropout(0.1),
+            # nn.Dropout(0.1),
             nn.Linear(128, 64),        # Hidden layer: 128 -> Hidden layer: 64
             nn.ReLU(),
             nn.LayerNorm(64),
-            nn.Dropout(0.1),
+            # nn.Dropout(0.1),
             nn.Linear(64, 1)           # Output layer: 64 -> Single value (state value)
         )
 

@@ -32,7 +32,7 @@ class SimpleEnv2(MiniGridEnv):
 
     def __init__(
             self,
-            size=7,
+            size=12,
             agent_start_pos=(1, 1),
             agent_start_dir=0,
             reward_type: RewardType = RewardType.SPARSE,
@@ -153,7 +153,7 @@ class SimpleEnv2(MiniGridEnv):
                             f"Detected Obj: {expected_obj} not in resource_names: {self.resource_names}"
                         )
         return True
-
+    
     def get_lidar_observation(self):
         """
         Returns lidar observations aligned with the agent's orientation.
@@ -203,6 +203,7 @@ class SimpleEnv2(MiniGridEnv):
         self.validate_lidar_consistency(lidar_obs)
 
         return lidar_obs
+    
 
     def get_entity_index(self, obj):
         # Map object to the corresponding index in self.resource_names
@@ -411,7 +412,7 @@ class SimpleEnv2(MiniGridEnv):
 
         self.step_count = 0
         return self.get_obs(), {}
-
+    
     def render(self):
         # Call the parent class's render method
         result = super().render()
