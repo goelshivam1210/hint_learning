@@ -144,10 +144,11 @@ class SimpleEnv2(MiniGridEnv):
 
         # Place resources and other objects on the grid
         self.place_obj(Resource("red", "iron_ore"), top=(0, 0))
+        self.place_obj(Resource("green", "tree"), top=(0, 0))
         if self.env_type == EnvType.CLUTTER:
             for ore in self.clutter_ores:
                 self.place_obj(Resource("yellow", f"{ore}_ore"), top=(0, 0))
-        self.place_obj(Resource("green", "tree"), top=(0, 0))
+                self.place_obj(Resource("green", "tree"), top=(0, 0))
         self.place_obj(Box("blue"), top=(0, 0))    # Crafting table
 
         # Ensure the agent's starting position is placed in a valid, empty cell
@@ -401,7 +402,7 @@ class SimpleEnv2(MiniGridEnv):
             # Only allow Resource objects to be collected
             if isinstance(fwd_cell, Resource):
                 resource_name = fwd_cell.resource_name
-                if resource_name not in self.collected_resources_global:
+                if resource_name == "tree" or resource_name not in self.collected_resources_global:
                     self.collected_resources_global.add(resource_name)
                     # Map the resource to its inventory name
                     if resource_name == "iron_ore":
