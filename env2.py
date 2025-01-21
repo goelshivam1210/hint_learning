@@ -253,7 +253,6 @@ class SimpleEnv2(MiniGridEnv):
             if item in self.inventory_items:
                 index = self.inventory_items.index(item)
                 inventory_obs[index] += 1
-        print(f"inventory_obs: {inventory_obs}")
         return inventory_obs
     
     def get_facing_object_one_hot(self):
