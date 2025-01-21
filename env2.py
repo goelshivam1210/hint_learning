@@ -253,6 +253,7 @@ class SimpleEnv2(MiniGridEnv):
             if item in self.inventory_items:
                 index = self.inventory_items.index(item)
                 inventory_obs[index] += 1
+        print(f"inventory_obs: {inventory_obs}")
         return inventory_obs
     
     def get_facing_object_one_hot(self):
@@ -411,9 +412,9 @@ class SimpleEnv2(MiniGridEnv):
                     elif resource_name == "gold_ore":
                         self.inventory.append("gold")
                     elif resource_name == "platinum_ore":
-                        self.inventory.append("gold")
+                        self.inventory.append("platinum")
                     elif resource_name == "titanium_ore": # No harm in having these but could be more modular
-                        self.inventory.append("gold")
+                        self.inventory.append("titanium")
                     elif resource_name == "tree":
                         self.inventory.append("wood")
 
