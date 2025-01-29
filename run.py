@@ -14,7 +14,8 @@ import yaml
 from editedenv import SimpleEnv
 from env2 import SimpleEnv2, RewardType
 
-from env_wrapper import EnvWrapper
+# from env_wrapper import EnvWrapper
+from env_wrapper_2 import EnvWrapper
 
 # Import attention network
 from attention_net_own import AttentionNet
@@ -36,12 +37,12 @@ def parse_args():
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=5, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
-    parser.add_argument('--grid_size', type=int, default=12, help='Size of the gridworld')
-    parser.add_argument('--max_episodes', type=int, default=20000, help='Maximum number of training episodes.')
+    parser.add_argument('--grid_size', type=int, default=15, help='Size of the gridworld')
+    parser.add_argument('--max_episodes', type=int, default=15000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
     parser.add_argument('--update_timestep', type=int, default=4000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
-    parser.add_argument('--save_interval', type=int, default=10000, help='Interval to save the model.')
+    parser.add_argument('--save_interval', type=int, default=5000, help='Interval to save the model.')
     parser.add_argument('--log_interval', type=int, default=1000, help='Interval to log training progress.')
     parser.add_argument('--test_interval', type=int, default=500, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
@@ -143,7 +144,8 @@ def main():
             env.reset(seed=seed)
 
         if args.use_wrapper:
-            wrapped_env = EnvWrapper(env, "constraints.yaml")
+            # wrapped_env = EnvWrapper(env, "constraints.yaml")
+            wrapped_env = EnvWrapper(env)
             return wrapped_env
         else:
             return env
@@ -155,7 +157,8 @@ def main():
         else:
             env = SimpleEnv(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Enable rgb_array mode for video recording
         if args.use_wrapper:
-            wrapped_env = EnvWrapper(env, "constraints.yaml")
+            # wrapped_env = EnvWrapper(env, "constraints.yaml")
+            wrapped_env = EnvWrapper(env)
             return wrapped_env
         else:
             return env
@@ -265,7 +268,7 @@ def main():
                     ppo_agent.update()
 
                 if args.use_smallenv:
-                    if "iron_sword" in env.inventory:
+                    if "treasure" in env.inventory:
                         # print ("Goal state reached!")
                         success_train += 1
                 else:
@@ -310,8 +313,9 @@ def main():
 
                 # Check for convergence: if the average success rate over the last 10 tests is > 95%
                 if len(success_window) == args.convergence and np.mean(success_window) >= 0.95:
-                    print(f"Converged with success rate: {np.mean(success_window):.2f}")
-                    converged = True
+                    converged, avg_success, improvement = has_converged(success_window, args.epsilon)
+                    if converged:
+                        print(f"Converged with success rate: {avg_success:.2f} (Improvement: {improvement:.2f})")
 
                           # Log test metrics using total timesteps
                 writer.add_scalar("Test/Reward", np.mean(test_rewards), timestep)
@@ -378,7 +382,7 @@ def main():
 
             rewards.append(cumulative_reward)
             if args.use_smallenv:
-                if "iron_sword" in env.inventory:
+                if "treasure" in env.inventory:
                     successes += 1
             else:
                 if "treasure" in env.inventory:
@@ -386,6 +390,24 @@ def main():
 
         success_rate = successes / args.n_test_episodes
         return rewards, success_rate
+    
+    def has_converged(success_window, epsilon, threshold=0.95):
+        """
+        Check if the agent has converged based on success rates.
+        
+        Args:
+            success_window (list): Sliding window of recent success rates.
+            epsilon (float): Minimum improvement over the window to avoid convergence.
+            threshold (float): Success rate threshold for convergence.
+
+        Returns:
+            bool: Whether convergence criteria are met.
+            float: Average success rate over the window.
+            float: Improvement over the window.
+        """
+        avg_success = np.mean(success_window)
+        improvement = success_window[-1] - success_window[0]
+        return avg_success >= threshold and improvement <= epsilon, avg_success, improvement
 
     # Start training
     train()

@@ -29,6 +29,7 @@ class SimpleEnv2(MiniGridEnv):
         turn_right = 2
         toggle = 3
         craft_sword = 4
+        open_treasure = 5
 
     def __init__(
             self,
@@ -49,19 +50,31 @@ class SimpleEnv2(MiniGridEnv):
             self.max_reward_episodes = max_reward_episodes  # Threshold for giving sword reward
             self.current_episode = 0  # Track the current episode
 
-            self.sword_crafted = False
+            # self.sword_crafted = False
+            self.treasure_obtained = False
 
             # Track which resources have been collected during the entire training
             self.collected_resources_global = set()
 
-            # Updated the resource_names to reflect only non-collected world items
-            self.resource_names = ["iron_ore", "tree", "crafting_table", "wall"]  # For lidar and inventory
-            self.facing_objects = self.resource_names + ["nothing"]  # Include "nothing" for facing logic
+            self.useless_items = ["feather", "bone"]  # Items that do nothing
+
+            # resource_names to reflect only non-collected world items
+            self.resource_names = ["iron_ore", "copper_ore", "bronze_ore", "silver_ore", "gold_ore",
+                                    "tree",
+                                    "treasure", "crafting_table", 
+                                    "wall"] + self.useless_items # for lidar and inventory
+            
+            self.inventory_items = ["iron", "copper", "bronze", "silver", "gold",
+                                    "wood",
+                                    "iron_sword", "titanium_sword", "copper_sword", "bronze_sword", "silver_sword", "gold_sword",
+                                    "treasure"] + self.useless_items
+            
+            # self.facing_objects = self.resource_names + ["nothing"]  # Include "nothing" for facing logic
 
             # Inventory for collected items
-            self.inventory_items = ["iron", "wood", "iron_sword"]
+            # self.inventory_items = ["iron", "wood", "iron_sword"]
 
-            self.inventory = []
+            self.inventory = ["titanium_sword"]  # Agent starts with a titanium sword
             mission_space = MissionSpace(mission_func=self._gen_mission)
 
             self.crafted_sword_episodes = 0
@@ -88,8 +101,9 @@ class SimpleEnv2(MiniGridEnv):
         # Calculate observation space dimensions
             lidar_shape = 8 * len(self.resource_names)  # Flattened lidar
             inventory_shape = len(self.inventory_items)  # Inventory items
-            facing_object_shape = len(self.facing_objects)  # One-hot vector for facing object
-            total_obs_dim = lidar_shape + inventory_shape + facing_object_shape
+            # facing_object_shape = len(self.facing_objects)  # One-hot vector for facing object
+            # total_obs_dim = lidar_shape + inventory_shape + facing_object_shape
+            total_obs_dim = lidar_shape + inventory_shape # trying this
 
             # Set observation space to a flat Box
             self.observation_space = gym.spaces.Box(
@@ -117,8 +131,18 @@ class SimpleEnv2(MiniGridEnv):
 
         # Place resources and other objects on the grid
         self.place_obj(Resource("red", "iron_ore"), top=(0, 0))
-        self.place_obj(Resource("green", "tree"), top=(0, 0))
+        self.place_obj(Resource("blue", "copper_ore"), top=(0, 0))
+        self.place_obj(Resource("purple", "bronze_ore"), top=(0, 0))
+        self.place_obj(Resource("green", "silver_ore"), top=(0, 0))
+        self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
+        self.place_obj(Resource("grey", "bone"), top=(0, 0))
+        self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
+        for _ in range (5):
+            self.place_obj(Resource("green", "tree"), top=(0, 0))
+
+
         self.place_obj(Box("blue"), top=(0, 0))    # Crafting table
+        self.place_obj(Box("purple"), top=(0, 0))  # Treasure
 
         # Ensure the agent's starting position is placed in a valid, empty cell
         if self.agent_start_pos is not None:
@@ -206,11 +230,15 @@ class SimpleEnv2(MiniGridEnv):
     
 
     def get_entity_index(self, obj):
-        # Map object to the corresponding index in self.resource_names
+
+        # Map the object to its corresponding index in self.resource_names.
         if isinstance(obj, Resource):
             return self.resource_names.index(obj.resource_name)
         elif isinstance(obj, Box):
-            return self.resource_names.index("crafting_table")
+            if obj.color == "purple":  # Treasure
+                return self.resource_names.index("treasure")
+            elif obj.color == "blue":  # Crafting table
+                return self.resource_names.index("crafting_table")
         else:
             return self.resource_names.index("wall")
 
@@ -257,14 +285,16 @@ class SimpleEnv2(MiniGridEnv):
     def get_obs(self):
         lidar_obs = self.get_lidar_observation().flatten().astype(np.float32)   # Flatten lidar
         inventory_obs = self.get_inventory_observation().astype(np.float32)
-        facing_object_one_hot = self.get_facing_object_one_hot()  # Get one-hot encoding for facing object
+        # facing_object_one_hot = self.get_facing_object_one_hot()  # Get one-hot encoding for facing object
 
         # Debugging prints for lidar and inventory shapes
         # print(f"Debug: Lidar Observation Shape: {lidar_obs.shape}")
         # print(f"Debug: Inventory Observation Shape: {inventory_obs.shape}")
 
         # Concatenate lidar and inventory observations
-        combined_obs = np.concatenate([lidar_obs, inventory_obs, facing_object_one_hot], axis=0).astype(np.float32)
+        # combined_obs = np.concatenate([lidar_obs, inventory_obs, facing_object_one_hot], axis=0).astype(np.float32)
+        combined_obs = np.concatenate([lidar_obs, inventory_obs], axis=0).astype(np.float32)
+
         # print(f"Debug: Combined Observation Shape: {combined_obs.shape}")
 
         return combined_obs
@@ -305,8 +335,7 @@ class SimpleEnv2(MiniGridEnv):
         return None, None  # Return None if no valid adjacent position is found
     
     def step(self, action):
-        reward = -0.1  # Default time step penalty
-        # self.cumulative_reward += reward  # Track the cumulative reward
+        reward = -1  # Default time step penalty
         terminated = False
         truncated = False
         
@@ -314,24 +343,42 @@ class SimpleEnv2(MiniGridEnv):
         if self.step_count >= self.max_steps:
             terminated = True
 
-        # Action for crafting the sword
+        # === Crafting Logic (Only One Sword at a Time) ===
         if action == self.Actions.craft_sword.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
             if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table
-                if "wood" in self.inventory and "iron" in self.inventory and not self.sword_crafted:
-                    self.inventory.remove("wood")
-                    self.inventory.remove("iron")
-                    self.inventory.append("iron_sword")
-                    # print("Crafted an Iron Sword!")
-                    self.sword_crafted = True
-                    self.crafted_sword_episodes += 1
-                    reward = 1000  # Large reward for finding the treasure (sparse reward)
-                    terminated = True
+                if "wood" in self.inventory:
+                    possible_swords = [ore for ore in ["iron", "copper", "bronze", "silver", "gold"] if ore in self.inventory]
+                    if possible_swords:
+                        selected_ore = np.random.choice(possible_swords)  # Randomly select an ore
+                        self.inventory.remove("wood")
+                        self.inventory.remove(selected_ore)
+                        crafted_sword = f"{selected_ore}_sword"
+                        self.inventory.append(crafted_sword)
+                        # print(f"Crafted {crafted_sword}!")
 
             return self.get_obs(), reward, terminated, truncated, {}
 
+        # === Open Treasure (Only Works with Iron Sword) ===
+        elif action == self.Actions.open_treasure.value:
+            fwd_pos = self.front_pos
+            fwd_cell = self.grid.get(*fwd_pos)
+
+            if isinstance(fwd_cell, Box) and fwd_cell.color == "purple":  # Treasure Box
+                if "iron_sword" in self.inventory:  # Must be iron_sword
+                    self.inventory.append("treasure")
+                    self.grid.set(*fwd_pos, None)  # Remove treasure from grid
+                    print("Treasure obtained!")
+                    reward = 600  # Large reward for success
+                    terminated = True
+                    truncated = True  # Episode should stop immediately
+                    self.treasure_obtained = True
+
+            return self.get_obs(), reward, terminated, truncated, {}
+
+        # === Collect Resources (Includes Useless Items) ===
         elif action == self.Actions.toggle.value:
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
@@ -339,46 +386,32 @@ class SimpleEnv2(MiniGridEnv):
             if fwd_cell is None:
                 return self.get_obs(), reward, terminated, truncated, {}
 
-            # Only allow Resource objects to be collected
             if isinstance(fwd_cell, Resource):
                 resource_name = fwd_cell.resource_name
-                if resource_name not in self.collected_resources_global:
-                    self.collected_resources_global.add(resource_name)
-                    # Map the resource to its inventory name
-                    if resource_name == "iron_ore":
-                        self.inventory.append("iron")
-                    elif resource_name == "silver_ore":
-                        self.inventory.append("silver")
-                    elif resource_name == "gold_ore":
-                        self.inventory.append("gold")
-                    elif resource_name == "tree":
-                        self.inventory.append("wood")
 
-                    # Update the lidar observation and inventory
-                    self.grid.set(*fwd_pos, None)  # Remove the object from the grid
+                # Assign resource to inventory (Handles ores, trees, and useless objects)
+                if resource_name in ["iron_ore", "copper_ore", "bronze_ore", "silver_ore", "gold_ore"]:
+                    self.inventory.append(resource_name.replace("_ore", ""))  # Convert eg: "iron_ore" -> "iron"
+                elif resource_name == "tree":
+                    self.inventory.append("wood")
+                elif resource_name in ["feather", "bone"]:  # New useless objects
+                    self.inventory.append(resource_name)
 
-                    # Assign rewards based on the reward type (dense or sparse)
-                    if self.reward_type == RewardType.DENSE:
-                        # In DENSE mode, reward immediately upon collecting resources
-                        if self.collected_resource_episodes[resource_name] < self.max_reward_episodes:
-                            reward = 10  # Higher reward for first few collections
-                        else:
-                            reward = 1  # Reduced reward after repeated collections
-                        # self.cumulative_reward += reward
-                    else:
-                        # In SPARSE mode, no reward for collecting resources
-                        reward = -0.1  # Collecting resources doesn't give immediate rewards in sparse mode
+                self.grid.set(*fwd_pos, None)  # Remove object from grid
+
+                # Assign rewards based on reward type
+                if self.reward_type == RewardType.DENSE:
+                    reward = 10 if self.collected_resource_episodes[resource_name] < self.max_reward_episodes else 1
                 else:
-                    # Penalize redundant collection within the same episode
-                    reward = -0.1  
+                    reward = -0.1  # Small penalty for resource collection in sparse mode
+
             return self.get_obs(), reward, terminated, truncated, {}
 
-        # Handle basic actions (move, turn, etc.) using the parent class
+        # === Movement and Rotation ===
         if action in [self.Actions.move_forward.value, self.Actions.turn_left.value, self.Actions.turn_right.value]:
             obs, reward_super, terminated, truncated, info = super().step(action)
-            self.step_count -= 1
+            self.step_count -= 1  # Adjust for step increase earlier
             reward += reward_super
-            # self.cumulative_reward += reward  # Update cumulative reward
             return self.get_obs(), reward, terminated, truncated, info
 
         # Handle unknown actions
@@ -389,8 +422,10 @@ class SimpleEnv2(MiniGridEnv):
         # print (f"Cumulative reward: {self.cumulative_reward}")
         # print (f"episodes for crafting sword = {self.crafted_sword_episodes}")
         self.np_random, seed = seeding.np_random(seed)
-        self.inventory = []
-        self.sword_crafted = False  # Reset sword crafting per episode
+        self.inventory = ["titanium_sword"]
+        # self.sword_crafted = False  # Reset sword crafting per episode
+        self.treasure_obtained = False
+        self.collected_resources_global = set()
 
         # Reset per-episode resource collection
         self.collected_resources_global = set()
@@ -418,7 +453,7 @@ class SimpleEnv2(MiniGridEnv):
         result = super().render()
 
         # Display the agent's inventory on the screen (in the terminal or add GUI)
-        # print(f"Inventory: {', '.join(self.inventory)}")
+        print(f"Inventory: {', '.join(self.inventory)}")
 
         return result
 
@@ -481,7 +516,8 @@ class CustomManualControl:
             "up": SimpleEnv2.Actions.turn_right.value,
             "right": SimpleEnv2.Actions.move_forward.value,
             "space": SimpleEnv2.Actions.toggle.value,
-            "s": SimpleEnv2.Actions.craft_sword.value,  # 'c' for craft sword
+            "s": SimpleEnv2.Actions.craft_sword.value,  # 's' for craft sword
+            "o": SimpleEnv2.Actions.open_treasure.value  # 'o' for open treasure
             }
         
         for member in self.env.Actions:
