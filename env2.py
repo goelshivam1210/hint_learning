@@ -60,12 +60,12 @@ class SimpleEnv2(MiniGridEnv):
 
             # resource_names to reflect only non-collected world items
             self.resource_names = ["iron_ore", "copper_ore", "bronze_ore", "silver_ore", "gold_ore",
-                                    "tree",
+                                    # "tree",
                                     "treasure", "crafting_table", 
                                     "wall"] + self.useless_items # for lidar and inventory
             
             self.inventory_items = ["iron", "copper", "bronze", "silver", "gold",
-                                    "wood",
+                                    # "wood",
                                     "iron_sword", "titanium_sword", "copper_sword", "bronze_sword", "silver_sword", "gold_sword",
                                     "treasure"] + self.useless_items
             
@@ -74,7 +74,7 @@ class SimpleEnv2(MiniGridEnv):
             # Inventory for collected items
             # self.inventory_items = ["iron", "wood", "iron_sword"]
 
-            self.inventory = ["titanium_sword"]  # Agent starts with a titanium sword
+            self.inventory = ["titanium_sword", "wood", "wood", "wood", "wood", "wood" ]  # Agent starts with a titanium sword
             mission_space = MissionSpace(mission_func=self._gen_mission)
 
             self.crafted_sword_episodes = 0
@@ -137,8 +137,8 @@ class SimpleEnv2(MiniGridEnv):
         self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
         self.place_obj(Resource("grey", "bone"), top=(0, 0))
         self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
-        for _ in range (5):
-            self.place_obj(Resource("green", "tree"), top=(0, 0))
+        # for _ in range (5):
+        #     self.place_obj(Resource("green", "tree"), top=(0, 0))
 
 
         self.place_obj(Box("blue"), top=(0, 0))    # Crafting table
@@ -177,7 +177,7 @@ class SimpleEnv2(MiniGridEnv):
                             f"Detected Obj: {expected_obj} not in resource_names: {self.resource_names}"
                         )
         return True
-    
+        
     def get_lidar_observation(self):
         """
         Returns lidar observations aligned with the agent's orientation.
@@ -185,43 +185,51 @@ class SimpleEnv2(MiniGridEnv):
         """
         # Initialize the lidar observation matrix: 8 beams x number of object types
         lidar_obs = np.zeros((8, len(self.resource_names)), dtype=np.float32)
-        
-        # Define angles for each beam relative to the agent's current direction
-        base_angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)  # Global angles for 8 beams
+
+        # **Step 1: Reset all floor tiles to default color**
+        for x in range(self.grid.width):
+            for y in range(self.grid.height):
+                obj = self.grid.get(x, y)
+                if isinstance(obj, Floor):
+                    self.grid.set(x, y, Floor("grey"))  # Reset floor to default color
+
+        # Compute Lidar Observations**
+        base_angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)  # 8 beam directions
         agent_angle = self.agent_dir * (np.pi / 2)  # Convert agent_dir to radians (90-degree steps)
         angles = (base_angles + agent_angle) % (2 * np.pi)  # Rotate to align with agent's facing direction
 
-        # Loop through each beam
         for i, angle in enumerate(angles):
-            x, y = self.agent_pos  # Start position of the agent
+            x, y = self.agent_pos  # Agent's position
             x_ratio, y_ratio = np.cos(angle), np.sin(angle)
 
-            # Continue shooting the beam until it hits a wall or exits the grid
-            for beam_range in range(1, self.grid.width * 2):  # Maximum range based on the grid size
+            min_distance = float("inf")  # Track closest object distance
+
+            for beam_range in range(1, self.grid.width * 2):  # Max range based on grid size
                 x_obj = int(x + beam_range * x_ratio)
                 y_obj = int(y + beam_range * y_ratio)
 
                 # Check if the beam is out of bounds
                 if not (0 <= x_obj < self.grid.width and 0 <= y_obj < self.grid.height):
-                    break  # Beam has exited the grid
+                    break  # Beam exits the grid
 
-                # Get the object at the current beam position
                 obj = self.grid.get(x_obj, y_obj)
-                if isinstance(obj, Floor):
-                    self.grid.set(x_obj, y_obj, Floor("yellow"))  # For visualization purposes
 
-                if obj is not None:
-                    # Get the index of the detected object
-                    if not isinstance(obj, Floor):
-                        closest_entity_idx = self.get_entity_index(obj)
-                        
-                        # Record the distance in the corresponding beam and object type channel
-                        if lidar_obs[i, closest_entity_idx] == 0:  # Only update if no previous object was detected on this beam
-                            lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize the distance
+                # **Only highlight empty floors, not objects**
+                if obj is None or isinstance(obj, Floor):
+                    self.grid.set(x_obj, y_obj, Floor("yellow"))  # Show beam path
 
-                    # Stop the beam if the object is a wall (can_occlude)
-                    if obj.type == "wall":  # Checking if the object is a wall by its type
-                        break  # Stop the beam as it hit a wall
+                # **If an object is detected, record the distance**
+                if obj is not None and not isinstance(obj, Floor):  
+                    closest_entity_idx = self.get_entity_index(obj)
+
+                    # **Update only if this object is the closest in this beam**
+                    if beam_range < min_distance:
+                        lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize distance
+                        min_distance = beam_range  # Update closest object distance
+
+                    # **Stop beam if a wall is hit**
+                    if hasattr(obj, "type") and obj.type == "wall":
+                        break  # Stop the beam at the wall
 
         # **Validate consistency of lidar observations**
         self.validate_lidar_consistency(lidar_obs)
@@ -422,7 +430,7 @@ class SimpleEnv2(MiniGridEnv):
         # print (f"Cumulative reward: {self.cumulative_reward}")
         # print (f"episodes for crafting sword = {self.crafted_sword_episodes}")
         self.np_random, seed = seeding.np_random(seed)
-        self.inventory = ["titanium_sword"]
+        self.inventory = ["titanium_sword", "wood", "wood", "wood", "wood", "wood" ]  # Agent starts with a titanium sword
         # self.sword_crafted = False  # Reset sword crafting per episode
         self.treasure_obtained = False
         self.collected_resources_global = set()
