@@ -186,12 +186,12 @@ class SimpleEnv2(MiniGridEnv):
         # Initialize the lidar observation matrix: 8 beams x number of object types
         lidar_obs = np.zeros((8, len(self.resource_names)), dtype=np.float32)
 
-        # **Step 1: Reset all floor tiles to default color**
+        # **Step 1: Reset only previously yellow floors to grey**
         for x in range(self.grid.width):
             for y in range(self.grid.height):
                 obj = self.grid.get(x, y)
-                if isinstance(obj, Floor):
-                    self.grid.set(x, y, Floor("grey"))  # Reset floor to default color
+                if isinstance(obj, Floor) and obj.color == "yellow":  # Only reset previously highlighted tiles
+                    self.grid.set(x, y, Floor("grey"))  
 
         # Compute Lidar Observations**
         base_angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)  # 8 beam directions
@@ -214,22 +214,26 @@ class SimpleEnv2(MiniGridEnv):
 
                 obj = self.grid.get(x_obj, y_obj)
 
-                # **Only highlight empty floors, not objects**
+                # highlight empty floors, not objects
                 if obj is None or isinstance(obj, Floor):
                     self.grid.set(x_obj, y_obj, Floor("yellow"))  # Show beam path
+                    continue  # Keep going until an object is found
 
-                # **If an object is detected, record the distance**
-                if obj is not None and not isinstance(obj, Floor):  
-                    closest_entity_idx = self.get_entity_index(obj)
+                # If an object is detected, record the distance
+                closest_entity_idx = self.get_entity_index(obj)
 
-                    # **Update only if this object is the closest in this beam**
-                    if beam_range < min_distance:
-                        lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize distance
-                        min_distance = beam_range  # Update closest object distance
+                # **Update only if this object is the closest in this beam**
+                if beam_range < min_distance:
+                    lidar_obs[i, closest_entity_idx] = beam_range / self.grid.width  # Normalize distance
+                    min_distance = beam_range  # Update closest object distance
 
-                    # **Stop beam if a wall is hit**
-                    if hasattr(obj, "type") and obj.type == "wall":
-                        break  # Stop the beam at the wall
+                # **Stop the beam immediately when hitting a wall or object**
+                if hasattr(obj, "type") and obj.type == "wall":
+                    wall_index = self.resource_names.index("wall")
+                    lidar_obs[i, wall_index] = beam_range / self.grid.width
+                    break  # Stop at the wall
+
+                break  # Stop at the first detected object
 
         # **Validate consistency of lidar observations**
         self.validate_lidar_consistency(lidar_obs)
