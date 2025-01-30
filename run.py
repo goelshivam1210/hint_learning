@@ -36,15 +36,15 @@ def parse_args():
     parser.add_argument('--lr-critic', type=float, default=0.001, help='Learning rate for the critic.')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=5, help='Number of PPO epochs per update.')
-    parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
+    parser.add_argument('--eps-clip', type=float, default=0.15, help='Clip range for PPO updates.')
     parser.add_argument('--grid_size', type=int, default=15, help='Size of the gridworld')
-    parser.add_argument('--max_episodes', type=int, default=15000, help='Maximum number of training episodes.')
+    parser.add_argument('--max_episodes', type=int, default=35000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
-    parser.add_argument('--update_timestep', type=int, default=4000, help='Timesteps after which PPO update is triggered.')
+    parser.add_argument('--update_timestep', type=int, default=10000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
     parser.add_argument('--save_interval', type=int, default=5000, help='Interval to save the model.')
     parser.add_argument('--log_interval', type=int, default=1000, help='Interval to log training progress.')
-    parser.add_argument('--test_interval', type=int, default=500, help='Interval to test the agent.')
+    parser.add_argument('--test_interval', type=int, default=1000, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
     parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
     parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
@@ -269,7 +269,7 @@ def main():
 
                 if args.use_smallenv:
                     if "treasure" in env.inventory:
-                        # print ("Goal state reached!")
+                        print ("Training: Goal state reached!")
                         success_train += 1
                 else:
                     if "treasure" in env.inventory:
@@ -383,6 +383,7 @@ def main():
             rewards.append(cumulative_reward)
             if args.use_smallenv:
                 if "treasure" in env.inventory:
+                    print ("Testing: Goal state reached!")
                     successes += 1
             else:
                 if "treasure" in env.inventory:

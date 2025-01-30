@@ -11,6 +11,14 @@ from minigrid.core.constants import COLOR_NAMES
 import pygame
 import numpy as np
 
+# for visualization
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+
+console = Console()
+
 
 class RewardType(Enum):
     DENSE = "dense"
@@ -28,8 +36,12 @@ class SimpleEnv2(MiniGridEnv):
         turn_left = 1
         turn_right = 2
         toggle = 3
-        craft_sword = 4
-        open_treasure = 5
+        craft_iron_sword = 4
+        craft_copper_sword = 5
+        craft_bronze_sword = 6
+        craft_silver_sword = 7
+        craft_gold_sword = 8
+        open_treasure = 9
 
     def __init__(
             self,
@@ -355,22 +367,31 @@ class SimpleEnv2(MiniGridEnv):
         if self.step_count >= self.max_steps:
             terminated = True
 
-        # === Crafting Logic (Only One Sword at a Time) ===
-        if action == self.Actions.craft_sword.value:
+        if action in [self.Actions.craft_iron_sword.value,
+                        self.Actions.craft_copper_sword.value,
+                        self.Actions.craft_bronze_sword.value,
+                        self.Actions.craft_silver_sword.value,
+                        self.Actions.craft_gold_sword.value]:
+            
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
-            if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table
-                if "wood" in self.inventory:
-                    possible_swords = [ore for ore in ["iron", "copper", "bronze", "silver", "gold"] if ore in self.inventory]
-                    if possible_swords:
-                        selected_ore = np.random.choice(possible_swords)  # Randomly select an ore
-                        self.inventory.remove("wood")
-                        self.inventory.remove(selected_ore)
-                        crafted_sword = f"{selected_ore}_sword"
-                        self.inventory.append(crafted_sword)
-                        # print(f"Crafted {crafted_sword}!")
+            if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table check
+                ore_type = {
+                    self.Actions.craft_iron_sword.value: "iron",
+                    self.Actions.craft_copper_sword.value: "copper",
+                    self.Actions.craft_bronze_sword.value: "bronze",
+                    self.Actions.craft_silver_sword.value: "silver",
+                    self.Actions.craft_gold_sword.value: "gold"
+                }.get(action, None)
 
+                if ore_type and ore_type in self.inventory and "wood" in self.inventory:
+                    self.inventory.remove(ore_type)
+                    self.inventory.remove("wood")
+                    crafted_sword = f"{ore_type}_sword"
+                    self.inventory.append(crafted_sword)
+                    # print(f"Crafted {crafted_sword}!")
+                    
             return self.get_obs(), reward, terminated, truncated, {}
 
         # === Open Treasure (Only Works with Iron Sword) ===
@@ -382,7 +403,7 @@ class SimpleEnv2(MiniGridEnv):
                 if "iron_sword" in self.inventory:  # Must be iron_sword
                     self.inventory.append("treasure")
                     self.grid.set(*fwd_pos, None)  # Remove treasure from grid
-                    print("Treasure obtained!")
+                    # print("Treasure obtained!")
                     reward = 600  # Large reward for success
                     terminated = True
                     truncated = True  # Episode should stop immediately
@@ -469,6 +490,45 @@ class SimpleEnv2(MiniGridEnv):
 
         return result
 
+    def debug_print_observation(self, obs):
+        """Nicely formatted observation print with colors and table layout."""
+        lidar_len = 8 * len(self.resource_names)  # Lidar section length
+        inventory_len = len(self.inventory_items)  # Inventory section length
+
+        # Split observation into sections
+        lidar_obs = obs[:lidar_len].reshape(8, -1)  # 8 lidar beams
+        inventory_obs = obs[lidar_len:lidar_len + inventory_len]
+
+        # 🟢 Create Lidar Table
+        lidar_table = Table(title="🔍 Lidar Observation (8 Beams x Object Types)", show_lines=True)
+        lidar_table.add_column("Beam", style="cyan", justify="center")
+        lidar_table.add_column("Detected Objects", style="magenta", justify="left")
+        lidar_table.add_column("Vector", style="yellow", justify="left")
+
+        for i, beam in enumerate(lidar_obs):
+            labeled_beam = [f"[cyan]{self.resource_names[j]}:[yellow]{beam[j]:.2f}[/yellow] (slot {j})" 
+                            for j in range(len(self.resource_names)) if beam[j] > 0]
+            lidar_table.add_row(f"[bold green]Beam {i+1}[/bold green]",
+                                ", ".join(labeled_beam) if labeled_beam else "[dim]No objects detected[/dim]",
+                                f"{beam}")
+
+        # 🟡 Create Inventory Table
+        inventory_table = Table(title="🎒 Inventory", show_lines=True)
+        inventory_table.add_column("Item", style="green", justify="left")
+        inventory_table.add_column("Count", style="bold yellow", justify="center")
+        inventory_table.add_column("Slot", style="blue", justify="center")
+
+        inventory_vector = np.zeros(len(self.inventory_items), dtype=np.float32)  # Empty vector
+        for i, item in enumerate(self.inventory_items):
+            if inventory_obs[i] > 0:
+                inventory_vector[i] = inventory_obs[i]
+                inventory_table.add_row(f"[bold cyan]{item}[/bold cyan]", f"{int(inventory_obs[i])}", f"[blue]{i}[/blue]")
+
+        # Print everything beautifully!
+        console.print(Panel(lidar_table, title="[bold red]LIDAR OBSERVATION[/bold red]", expand=False))
+        console.print(Panel(inventory_table, title="[bold blue]INVENTORY[/bold blue]", expand=False))
+        console.print(Panel(f"Inventory Vector: {inventory_vector}", title="📊 Inventory Vector", expand=False))
+
 
 # Custom manual control class for handling custom actions
 class CustomManualControl:
@@ -492,10 +552,9 @@ class CustomManualControl:
 
     def step(self, action):
         obs, reward, terminated, truncated, _ = self.env.step(action)
-        print (f"Action = {action})")
-        print (f"obs = {obs}")
-        print(f"step={self.env.step_count}, reward={reward:.2f}")
-        # print (f"self.cumulated reward = {self.env.cumulative_reward:.2f}")
+        print(f"\nAction = {action} ({self.env.Actions(action).name})")
+        self.env.debug_print_observation(obs)  # Call debug print
+        print(f"Step={self.env.step_count}, Reward={reward:.2f}")
 
 
         if terminated:
@@ -528,9 +587,13 @@ class CustomManualControl:
             "up": SimpleEnv2.Actions.turn_right.value,
             "right": SimpleEnv2.Actions.move_forward.value,
             "space": SimpleEnv2.Actions.toggle.value,
-            "s": SimpleEnv2.Actions.craft_sword.value,  # 's' for craft sword
-            "o": SimpleEnv2.Actions.open_treasure.value  # 'o' for open treasure
-            }
+            "o": SimpleEnv2.Actions.open_treasure.value,
+            "1": SimpleEnv2.Actions.craft_iron_sword.value,
+            "2": SimpleEnv2.Actions.craft_copper_sword.value,
+            "3": SimpleEnv2.Actions.craft_bronze_sword.value,
+            "4": SimpleEnv2.Actions.craft_silver_sword.value,
+            "5": SimpleEnv2.Actions.craft_gold_sword.value
+        }
         
         for member in self.env.Actions:
             if member.value not in key_to_action.values():
