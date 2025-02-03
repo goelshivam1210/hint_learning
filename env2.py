@@ -37,11 +37,11 @@ class SimpleEnv2(MiniGridEnv):
         turn_right = 2
         toggle = 3
         craft_iron_sword = 4
-        craft_copper_sword = 5
-        craft_bronze_sword = 6
-        craft_silver_sword = 7
-        craft_gold_sword = 8
-        open_treasure = 9
+        # craft_copper_sword = 5
+        # craft_bronze_sword = 6
+        # craft_silver_sword = 7
+        # craft_gold_sword = 8
+        open_treasure = 5
 
     def __init__(
             self,
@@ -68,25 +68,31 @@ class SimpleEnv2(MiniGridEnv):
             # Track which resources have been collected during the entire training
             self.collected_resources_global = set()
 
-            self.useless_items = ["feather", "bone"]  # Items that do nothing
+            # self.useless_items = ["feather", "bone"]  # Items that do nothing
 
             # resource_names to reflect only non-collected world items
-            self.resource_names = ["iron_ore", "copper_ore", "bronze_ore", "silver_ore", "gold_ore",
+            self.resource_names = ["iron_ore", 
+                                #    "copper_ore", "bronze_ore", "silver_ore", "gold_ore",
                                     # "tree",
                                     "treasure", "crafting_table", 
-                                    "wall"] + self.useless_items # for lidar and inventory
+                                    "wall"] 
+            # + self.useless_items # for lidar and inventory
             
-            self.inventory_items = ["iron", "copper", "bronze", "silver", "gold",
+            self.inventory_items = ["iron",
+                                    #  "copper", "bronze", "silver", "gold",
                                     # "wood",
-                                    "iron_sword", "titanium_sword", "copper_sword", "bronze_sword", "silver_sword", "gold_sword",
-                                    "treasure"] + self.useless_items
+                                    "iron_sword", 
+                                    "titanium_sword",
+                                    #   "copper_sword", "bronze_sword", "silver_sword", "gold_sword",
+                                    "treasure"]
+            # + self.useless_items
             
             # self.facing_objects = self.resource_names + ["nothing"]  # Include "nothing" for facing logic
 
             # Inventory for collected items
             # self.inventory_items = ["iron", "wood", "iron_sword"]
 
-            self.inventory = ["titanium_sword", "wood", "wood", "wood", "wood", "wood" ]  # Agent starts with a titanium sword
+            self.inventory = ["titanium_sword", "wood", "wood", "wood", "wood", "wood"]  # Agent starts with a titanium sword
             mission_space = MissionSpace(mission_func=self._gen_mission)
 
             self.crafted_sword_episodes = 0
@@ -116,6 +122,8 @@ class SimpleEnv2(MiniGridEnv):
             # facing_object_shape = len(self.facing_objects)  # One-hot vector for facing object
             # total_obs_dim = lidar_shape + inventory_shape + facing_object_shape
             total_obs_dim = lidar_shape + inventory_shape # trying this
+            # total_obs_dim = lidar_shape # trying this now
+
 
             # Set observation space to a flat Box
             self.observation_space = gym.spaces.Box(
@@ -143,12 +151,12 @@ class SimpleEnv2(MiniGridEnv):
 
         # Place resources and other objects on the grid
         self.place_obj(Resource("red", "iron_ore"), top=(0, 0))
-        self.place_obj(Resource("blue", "copper_ore"), top=(0, 0))
-        self.place_obj(Resource("purple", "bronze_ore"), top=(0, 0))
-        self.place_obj(Resource("green", "silver_ore"), top=(0, 0))
-        self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
-        self.place_obj(Resource("grey", "bone"), top=(0, 0))
-        self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
+        # self.place_obj(Resource("blue", "copper_ore"), top=(0, 0))
+        # self.place_obj(Resource("purple", "bronze_ore"), top=(0, 0))
+        # self.place_obj(Resource("green", "silver_ore"), top=(0, 0))
+        # self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
+        # self.place_obj(Resource("grey", "bone"), top=(0, 0))
+        # self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
         # for _ in range (5):
         #     self.place_obj(Resource("green", "tree"), top=(0, 0))
 
@@ -318,6 +326,7 @@ class SimpleEnv2(MiniGridEnv):
         # Concatenate lidar and inventory observations
         # combined_obs = np.concatenate([lidar_obs, inventory_obs, facing_object_one_hot], axis=0).astype(np.float32)
         combined_obs = np.concatenate([lidar_obs, inventory_obs], axis=0).astype(np.float32)
+        # combined_obs = np.concatenate([lidar_obs], axis=0).astype(np.float32)
 
         # print(f"Debug: Combined Observation Shape: {combined_obs.shape}")
 
@@ -367,22 +376,23 @@ class SimpleEnv2(MiniGridEnv):
         if self.step_count >= self.max_steps:
             terminated = True
 
-        if action in [self.Actions.craft_iron_sword.value,
-                        self.Actions.craft_copper_sword.value,
-                        self.Actions.craft_bronze_sword.value,
-                        self.Actions.craft_silver_sword.value,
-                        self.Actions.craft_gold_sword.value]:
+        if action in [self.Actions.craft_iron_sword.value
+                        # self.Actions.craft_copper_sword.value,
+                        # self.Actions.craft_bronze_sword.value,
+                        # self.Actions.craft_silver_sword.value,
+                        # self.Actions.craft_gold_sword.value
+                        ]:
             
             fwd_pos = self.front_pos
             fwd_cell = self.grid.get(*fwd_pos)
 
             if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table check
                 ore_type = {
-                    self.Actions.craft_iron_sword.value: "iron",
-                    self.Actions.craft_copper_sword.value: "copper",
-                    self.Actions.craft_bronze_sword.value: "bronze",
-                    self.Actions.craft_silver_sword.value: "silver",
-                    self.Actions.craft_gold_sword.value: "gold"
+                    self.Actions.craft_iron_sword.value: "iron"
+                    # self.Actions.craft_copper_sword.value: "copper",
+                    # self.Actions.craft_bronze_sword.value: "bronze",
+                    # self.Actions.craft_silver_sword.value: "silver",
+                    # self.Actions.craft_gold_sword.value: "gold"
                 }.get(action, None)
 
                 if ore_type and ore_type in self.inventory and "wood" in self.inventory:
@@ -391,7 +401,7 @@ class SimpleEnv2(MiniGridEnv):
                     crafted_sword = f"{ore_type}_sword"
                     self.inventory.append(crafted_sword)
                     # print(f"Crafted {crafted_sword}!")
-                    
+
             return self.get_obs(), reward, terminated, truncated, {}
 
         # === Open Treasure (Only Works with Iron Sword) ===
@@ -486,7 +496,7 @@ class SimpleEnv2(MiniGridEnv):
         result = super().render()
 
         # Display the agent's inventory on the screen (in the terminal or add GUI)
-        print(f"Inventory: {', '.join(self.inventory)}")
+        # print(f"Inventory: {', '.join(self.inventory)}")
 
         return result
 
@@ -589,10 +599,10 @@ class CustomManualControl:
             "space": SimpleEnv2.Actions.toggle.value,
             "o": SimpleEnv2.Actions.open_treasure.value,
             "1": SimpleEnv2.Actions.craft_iron_sword.value,
-            "2": SimpleEnv2.Actions.craft_copper_sword.value,
-            "3": SimpleEnv2.Actions.craft_bronze_sword.value,
-            "4": SimpleEnv2.Actions.craft_silver_sword.value,
-            "5": SimpleEnv2.Actions.craft_gold_sword.value
+            # "2": SimpleEnv2.Actions.craft_copper_sword.value,
+            # "3": SimpleEnv2.Actions.craft_bronze_sword.value,
+            # "4": SimpleEnv2.Actions.craft_silver_sword.value,
+            # "5": SimpleEnv2.Actions.craft_gold_sword.value
         }
         
         for member in self.env.Actions:

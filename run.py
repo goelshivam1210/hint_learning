@@ -14,8 +14,8 @@ import yaml
 from editedenv import SimpleEnv
 from env2 import SimpleEnv2, RewardType
 
-# from env_wrapper import EnvWrapper
-from env_wrapper_2 import EnvWrapper
+from env_wrapper import EnvWrapper
+# from env_wrapper_2 import EnvWrapper
 
 # Import attention network
 from attention_net_own import AttentionNet
@@ -30,21 +30,23 @@ def parse_args():
     parser.add_argument('--use-dense', action='store_true', help='Use dense reward function')
 
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
+    parser.add_argument('--load-model', type=str, default=None, help='Path to a saved PPO model to resume training.')
+    parser.add_argument('--logdir', type=str, default=None, help='Path to an existing TensorBoard log directory to resume training.')
 
     # Hyperparameters
     parser.add_argument('--lr-actor', type=float, default=0.0003, help='Learning rate for the actor.')
     parser.add_argument('--lr-critic', type=float, default=0.001, help='Learning rate for the critic.')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=5, help='Number of PPO epochs per update.')
-    parser.add_argument('--eps-clip', type=float, default=0.15, help='Clip range for PPO updates.')
-    parser.add_argument('--grid_size', type=int, default=15, help='Size of the gridworld')
-    parser.add_argument('--max_episodes', type=int, default=35000, help='Maximum number of training episodes.')
+    parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
+    parser.add_argument('--grid_size', type=int, default=12, help='Size of the gridworld')
+    parser.add_argument('--max_episodes', type=int, default=30000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
-    parser.add_argument('--update_timestep', type=int, default=10000, help='Timesteps after which PPO update is triggered.')
+    parser.add_argument('--update_timestep', type=int, default=4000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
     parser.add_argument('--save_interval', type=int, default=5000, help='Interval to save the model.')
-    parser.add_argument('--log_interval', type=int, default=1000, help='Interval to log training progress.')
-    parser.add_argument('--test_interval', type=int, default=1000, help='Interval to test the agent.')
+    parser.add_argument('--log_interval', type=int, default=500, help='Interval to log training progress.')
+    parser.add_argument('--test_interval', type=int, default=500, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
     parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
     parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
@@ -114,7 +116,7 @@ def main():
     os.makedirs(model_save_dir, exist_ok=True)
 
     # TensorBoard setup
-    log_dir = os.path.join(base_dir, "logs")
+    log_dir = args.logdir if args.logdir else os.path.join(base_dir, "logs")
     writer = SummaryWriter(log_dir)
 
     # # Sample data (Python dictionary)
@@ -144,8 +146,8 @@ def main():
             env.reset(seed=seed)
 
         if args.use_wrapper:
-            # wrapped_env = EnvWrapper(env, "constraints.yaml")
-            wrapped_env = EnvWrapper(env)
+            wrapped_env = EnvWrapper(env, "constraints.yaml")
+            # wrapped_env = EnvWrapper(env)
             return wrapped_env
         else:
             return env
@@ -157,7 +159,7 @@ def main():
         else:
             env = SimpleEnv(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Enable rgb_array mode for video recording
         if args.use_wrapper:
-            # wrapped_env = EnvWrapper(env, "constraints.yaml")
+            wrapped_env = EnvWrapper(env, "constraints.yaml")
             wrapped_env = EnvWrapper(env)
             return wrapped_env
         else:
@@ -187,7 +189,7 @@ def main():
             constraint_dim = len(dummy_env.constraints)
         else:
             constraint_dim = 0  # If running without wrapper, constraints don't exist
-
+            
     # PPO setup
     ppo_agent = PPO(
         state_dim=combined_shape[0],
@@ -200,6 +202,18 @@ def main():
         use_attention=args.use_attention,
         attention_net=AttentionNet(state_dim=combined_shape[0], constraint_dim=constraint_dim) if args.use_attention else None
     )
+
+    if args.load_model:
+        print(f"Loading model from {args.load_model}")
+        ppo_agent.load(args.load_model)
+
+        try:
+            last_episode = int(args.load_model.split("_")[-1].split(".")[0])  # Extract episode number from filename
+        except ValueError:
+            last_episode = 0  # If parsing fails, start fresh
+        else:
+            last_episode = 0  # If no model is loaded, start fresh
+
 
     # Extract actor and critic architectures
     actor_architecture = get_network_architecture(ppo_agent.policy.actor)
@@ -221,7 +235,7 @@ def main():
         success_train = 0
         success_window = []
         converged = False
-        for episode in range(1, args.max_episodes + 1):
+        for episode in range(last_episode + 1, args.max_episodes + 1):
             state, _ = env.reset()
             state = (state - state.mean()) / state.std()
 
@@ -269,7 +283,7 @@ def main():
 
                 if args.use_smallenv:
                     if "treasure" in env.inventory:
-                        print ("Training: Goal state reached!")
+                        # print ("Training: Goal state reached!")
                         success_train += 1
                 else:
                     if "treasure" in env.inventory:
@@ -295,11 +309,16 @@ def main():
             if episode % args.log_interval == 0:
                 print(f"Episode {episode}/{args.max_episodes}, Reward: {cumulative_reward:.2f}")
 
-            # Save model periodically
-            if episode % args.save_interval == 0:
+            # Save latest model (overwrites every time)
+            latest_model_path = os.path.join(model_save_dir, "ppo_latest.pth")
+            ppo_agent.save(latest_model_path)
+            # print(f"Latest model saved at {latest_model_path}")
+
+            # Save periodic checkpoints
+            if episode % args.save_interval == 0 or episode == args.max_episodes-1:
                 model_path = os.path.join(model_save_dir, f"ppo_model_{episode}.pth")
                 ppo_agent.save(model_path)
-                print(f"Model saved at episode {episode} to {model_path}")
+                print(f"Checkpoint saved at episode {episode} to {model_path}")
 
             # Test the agent periodically
             if episode % args.test_interval == 0:
@@ -327,7 +346,7 @@ def main():
                 # print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
                 # Stop training if converged
                 if converged:
-                    model_path = os.path.join(model_save_dir, f"ppo_model_converged.pth")
+                    model_path = os.path.join(model_save_dir, f"ppo_model_converged_{episode}.pth")
                     ppo_agent.save(model_path)
                     print(f"Converged and saved model at {model_path}")
                     break
@@ -383,7 +402,7 @@ def main():
             rewards.append(cumulative_reward)
             if args.use_smallenv:
                 if "treasure" in env.inventory:
-                    print ("Testing: Goal state reached!")
+                    # print ("Testing: Goal state reached!")
                     successes += 1
             else:
                 if "treasure" in env.inventory:
