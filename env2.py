@@ -41,7 +41,7 @@ class SimpleEnv2(MiniGridEnv):
         craft_bronze_sword = 6
         craft_silver_sword = 7
         craft_gold_sword = 8
-        open_treasure = 5
+        open_treasure = 9
 
     def __init__(
             self,
@@ -466,7 +466,7 @@ class SimpleEnv2(MiniGridEnv):
         # print (f"episodes for crafting sword = {self.crafted_sword_episodes}")
         self.np_random, seed = seeding.np_random(seed)
         self.inventory = ["titanium_sword", "wood", "wood", "wood", "wood", "wood" ]  # Agent starts with a titanium sword
-        # self.sword_crafted = False  # Reset sword crafting per episode
+        self.sword_crafted = False  # Reset sword crafting per episode
         self.treasure_obtained = False
         self.collected_resources_global = set()
 
@@ -599,10 +599,10 @@ class CustomManualControl:
             "space": SimpleEnv2.Actions.toggle.value,
             "o": SimpleEnv2.Actions.open_treasure.value,
             "1": SimpleEnv2.Actions.craft_iron_sword.value,
-            # "2": SimpleEnv2.Actions.craft_copper_sword.value,
-            # "3": SimpleEnv2.Actions.craft_bronze_sword.value,
-            # "4": SimpleEnv2.Actions.craft_silver_sword.value,
-            # "5": SimpleEnv2.Actions.craft_gold_sword.value
+            "2": SimpleEnv2.Actions.craft_copper_sword.value,
+            "3": SimpleEnv2.Actions.craft_bronze_sword.value,
+            "4": SimpleEnv2.Actions.craft_silver_sword.value,
+            "5": SimpleEnv2.Actions.craft_gold_sword.value
         }
         
         for member in self.env.Actions:
