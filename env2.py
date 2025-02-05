@@ -37,10 +37,10 @@ class SimpleEnv2(MiniGridEnv):
         turn_right = 2
         toggle = 3
         craft_iron_sword = 4
-        # craft_copper_sword = 5
-        # craft_bronze_sword = 6
-        # craft_silver_sword = 7
-        # craft_gold_sword = 8
+        craft_copper_sword = 5
+        craft_bronze_sword = 6
+        craft_silver_sword = 7
+        craft_gold_sword = 8
         open_treasure = 5
 
     def __init__(
@@ -68,24 +68,22 @@ class SimpleEnv2(MiniGridEnv):
             # Track which resources have been collected during the entire training
             self.collected_resources_global = set()
 
-            # self.useless_items = ["feather", "bone"]  # Items that do nothing
+            self.useless_items = ["feather", "bone"]  # Items that do nothing
 
             # resource_names to reflect only non-collected world items
             self.resource_names = ["iron_ore", 
-                                #    "copper_ore", "bronze_ore", "silver_ore", "gold_ore",
+                                   "copper_ore", "bronze_ore", "silver_ore", "gold_ore",
                                     # "tree",
                                     "treasure", "crafting_table", 
-                                    "wall"] 
-            # + self.useless_items # for lidar and inventory
+                                    "wall"] + self.useless_items # for lidar and inventory
             
             self.inventory_items = ["iron",
-                                    #  "copper", "bronze", "silver", "gold",
+                                     "copper", "bronze", "silver", "gold",
                                     # "wood",
                                     "iron_sword", 
                                     "titanium_sword",
-                                    #   "copper_sword", "bronze_sword", "silver_sword", "gold_sword",
-                                    "treasure"]
-            # + self.useless_items
+                                    "copper_sword", "bronze_sword", "silver_sword", "gold_sword",
+                                    "treasure"]+ self.useless_items
             
             # self.facing_objects = self.resource_names + ["nothing"]  # Include "nothing" for facing logic
 
@@ -151,12 +149,12 @@ class SimpleEnv2(MiniGridEnv):
 
         # Place resources and other objects on the grid
         self.place_obj(Resource("red", "iron_ore"), top=(0, 0))
-        # self.place_obj(Resource("blue", "copper_ore"), top=(0, 0))
-        # self.place_obj(Resource("purple", "bronze_ore"), top=(0, 0))
-        # self.place_obj(Resource("green", "silver_ore"), top=(0, 0))
-        # self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
-        # self.place_obj(Resource("grey", "bone"), top=(0, 0))
-        # self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
+        self.place_obj(Resource("blue", "copper_ore"), top=(0, 0))
+        self.place_obj(Resource("purple", "bronze_ore"), top=(0, 0))
+        self.place_obj(Resource("green", "silver_ore"), top=(0, 0))
+        self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
+        self.place_obj(Resource("grey", "bone"), top=(0, 0))
+        self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
         # for _ in range (5):
         #     self.place_obj(Resource("green", "tree"), top=(0, 0))
 
@@ -376,11 +374,11 @@ class SimpleEnv2(MiniGridEnv):
         if self.step_count >= self.max_steps:
             terminated = True
 
-        if action in [self.Actions.craft_iron_sword.value
-                        # self.Actions.craft_copper_sword.value,
-                        # self.Actions.craft_bronze_sword.value,
-                        # self.Actions.craft_silver_sword.value,
-                        # self.Actions.craft_gold_sword.value
+        if action in [self.Actions.craft_iron_sword.value,
+                        self.Actions.craft_copper_sword.value,
+                        self.Actions.craft_bronze_sword.value,
+                        self.Actions.craft_silver_sword.value,
+                        self.Actions.craft_gold_sword.value
                         ]:
             
             fwd_pos = self.front_pos
@@ -388,18 +386,20 @@ class SimpleEnv2(MiniGridEnv):
 
             if isinstance(fwd_cell, Box) and fwd_cell.color == 'blue':  # Crafting table check
                 ore_type = {
-                    self.Actions.craft_iron_sword.value: "iron"
-                    # self.Actions.craft_copper_sword.value: "copper",
-                    # self.Actions.craft_bronze_sword.value: "bronze",
-                    # self.Actions.craft_silver_sword.value: "silver",
-                    # self.Actions.craft_gold_sword.value: "gold"
+                    self.Actions.craft_iron_sword.value: "iron",
+                    self.Actions.craft_copper_sword.value: "copper",
+                    self.Actions.craft_bronze_sword.value: "bronze",
+                    self.Actions.craft_silver_sword.value: "silver",
+                    self.Actions.craft_gold_sword.value: "gold"
                 }.get(action, None)
 
                 if ore_type and ore_type in self.inventory and "wood" in self.inventory:
+                    # print(f"Before crafting: Inventory = {self.inventory}")
                     self.inventory.remove(ore_type)
                     self.inventory.remove("wood")
                     crafted_sword = f"{ore_type}_sword"
                     self.inventory.append(crafted_sword)
+                    # print(f"After crafting: Inventory = {self.inventory}")
                     # print(f"Crafted {crafted_sword}!")
 
             return self.get_obs(), reward, terminated, truncated, {}

@@ -3,6 +3,7 @@ from gymnasium import Wrapper
 import gymnasium as gym
 import yaml
 from env import Resource
+from minigrid.core.world_object import Ball, Box, Floor
 
 class EnvWrapper(Wrapper):
     def __init__(self, env, constraint_file):
@@ -58,30 +59,48 @@ class EnvWrapper(Wrapper):
             else:
                 result = False
 
-            return not result if is_negated else result
+            result = not result if is_negated else result
+            # print(f"Checking constraint: {constraint}, Inventory count: {item_count}, Result: {result}")  # DEBUG
+            return result
 
         # Handle holding constraints
         elif "holding" in parts[0]:
             item = parts[0].split("(")[1].replace(")", "")
             result = item in self.env.inventory and self.env.inventory[-1] == item
-            return not result if is_negated else result
+            result = not result if is_negated else result
+            # print(f"Checking constraint: {constraint}, Holding {item}: {result}")  # DEBUG
+            return result
 
         # Handle facing constraints
         elif "facing" in parts[0]:
             target = parts[0].split("(")[1].replace(")", "")
-            
-            # Check for agent_dir initialization
-            if self.env.agent_dir is None:
-                return False  # Avoid calculating direction if it's not initialized
 
-            # Proceed if direction is valid
+            # Check if agent_dir is initialized
+            if self.env.agent_dir is None:
+                # print(f"Checking constraint: facing({target}), Agent direction is None → Result: False")  # DEBUG
+                return False  # Avoid checking if direction is not initialized
+
+            # Get the object in front
             fwd_pos = self.env.front_pos
+
+            # Ensure position is within grid bounds
+            if not (0 <= fwd_pos[0] < self.env.grid.width and 0 <= fwd_pos[1] < self.env.grid.height):
+                # print(f"Checking constraint: facing({target}), Out-of-bounds position {fwd_pos} → Result: False")  # DEBUG
+                return False
+
             obj_in_front = self.env.grid.get(*fwd_pos)
-            if obj_in_front is not None and isinstance(obj_in_front, Resource) and obj_in_front.resource_name == target:
-                result = True
+
+            # Debugging: Print what the agent is actually facing
+            # print(f"Checking constraint: facing({target}), Object in front: {obj_in_front}, "
+            #     f"Type: {type(obj_in_front)}, Resource name: {getattr(obj_in_front, 'resource_name', None)}")
+
+            # Ensure we are checking a valid object
+            if obj_in_front is not None and hasattr(obj_in_front, "resource_name"):
+                result = obj_in_front.resource_name == target
             else:
                 result = False
 
+            # print(f"Final Decision for facing({target}): {result}")
             return not result if is_negated else result
 
         return False  # Default case

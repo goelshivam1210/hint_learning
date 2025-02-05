@@ -5,6 +5,7 @@ import torch.nn as nn
 import numpy as np
 from datetime import datetime
 import argparse
+import matplotlib.pyplot as plt
 from gymnasium.wrappers import RecordVideo
 from torch.utils.tensorboard import SummaryWriter
 from ppo import PPO
@@ -17,6 +18,8 @@ from env2 import SimpleEnv2, RewardType
 from env_wrapper import EnvWrapper
 # from env_wrapper_2 import EnvWrapper
 
+from data_collector import TrajectoryProcessor, TransitionGraph
+
 # Import attention network
 from attention_net_own import AttentionNet
 
@@ -28,6 +31,7 @@ def parse_args():
     parser.add_argument('--use-attention', action='store_true', help='Use attention mechanism in PPO.')
     parser.add_argument('--use-smallenv', action='store_true', help='Use environment with smaller action space')
     parser.add_argument('--use-dense', action='store_true', help='Use dense reward function')
+    parser.add_argument('--use-graph-reward', action='store_true', help='Enable graph-based reward shaping.')
 
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
     parser.add_argument('--load-model', type=str, default=None, help='Path to a saved PPO model to resume training.')
@@ -105,8 +109,8 @@ def main():
 
     # Create a unique identifier for this training instance
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}"
-
+    # instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}"
+    instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}_graph_{args.use_graph_reward}"
     # Create a directory for saving models and logs for this training instance
     base_dir = os.path.join("log", instance_id)
     os.makedirs(base_dir, exist_ok=True)
@@ -160,7 +164,7 @@ def main():
             env = SimpleEnv(render_mode='rgb_array', max_steps=args.max_timesteps, reward_type=RewardType.DENSE if args.use_dense else RewardType.SPARSE, size=args.grid_size)  # Enable rgb_array mode for video recording
         if args.use_wrapper:
             wrapped_env = EnvWrapper(env, "constraints.yaml")
-            wrapped_env = EnvWrapper(env)
+            # wrapped_env = EnvWrapper(env)
             return wrapped_env
         else:
             return env
@@ -211,8 +215,8 @@ def main():
             last_episode = int(args.load_model.split("_")[-1].split(".")[0])  # Extract episode number from filename
         except ValueError:
             last_episode = 0  # If parsing fails, start fresh
-        else:
-            last_episode = 0  # If no model is loaded, start fresh
+    else:
+        last_episode = 0  # If no model is loaded, start fresh
 
 
     # Extract actor and critic architectures
@@ -230,6 +234,13 @@ def main():
 
     # Training Loop
     def train():
+        processor = TrajectoryProcessor(constraint_file="constraints.yaml",
+                                        graph_constraints=[
+                                        "inventory(iron_sword) > 0",
+                                        "facing(iron_ore)",
+                                        "inventory(iron) > 0",      
+                        ])
+        transition_graph = TransitionGraph()
         timsteps_per_episode = []
         timestep = 0
         success_train = 0
@@ -237,14 +248,10 @@ def main():
         converged = False
         for episode in range(last_episode + 1, args.max_episodes + 1):
             state, _ = env.reset()
-            state = (state - state.mean()) / state.std()
+            # state = (state - state.mean()) / state.std()
+            trajectory = []  # Store the trajectory
 
             cumulative_reward = 0
-
-            # # Encode constraints (if using attention)
-            # constraints = dummy_env.encode_constraints() if args.use_attention else None
-            # if args.use_attention:
-            #     constraints = torch.tensor(constraints, dtype=torch.float32).to(device)  # Convert to tensor
 
             for t_step in range(args.max_timesteps):
                 timestep += 1
@@ -260,6 +267,23 @@ def main():
 
                 # Step environment
                 next_state, reward, terminated, truncated, _ = env.step(action)
+
+                # Apply graph-based reward shaping if enabled
+                if args.use_graph_reward:
+                    prev_state_graph = processor.extract_constraints(state)  
+                    new_state_graph = processor.extract_constraints(next_state)
+
+                    transition = (tuple(sorted(prev_state_graph.items())), tuple(sorted(new_state_graph.items())))
+
+                    # Ensure that the transition graph is not empty before accessing rewards
+                    graph_reward = 0
+                    if len(transition_graph.graph.edges) > 0:  
+                        graph_reward = transition_graph.compute_reward().get(transition, 0)
+
+                    reward += graph_reward  # Modify the reward with the graph-based reward
+
+                # Store state, action, reward
+                trajectory.append({"state": state, "action": action, "reward": reward})
 
                 next_state = (next_state - next_state.mean()) / next_state.std()
                 # if reward != -0.1:
@@ -277,6 +301,29 @@ def main():
                 # if timestep % args.update_timestep == 0:
                 #     ppo_agent.update()
                 #     timestep = 0
+
+                        # If a successful trajectory is found, process it
+                if "treasure" in env.inventory:
+                    print ("Training: Goal state reached!")
+                    
+                    # Process and store trajectory
+                    processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
+                    processor.store_trajectory(processed_trajectory)
+                    
+                    # Add trajectory to the transition graph
+                    transition_graph.add_trajectory(processed_trajectory)
+
+                    # Optimize graph by removing redundant edges
+                    transition_graph.prune_graph()
+                    
+                    # Visualize the updated graph
+                    transition_graph.visualize_graph()
+
+                # Periodically update the transition graph
+                if episode % 500 == 0:
+                    # print(f"Episode {episode}: Updating transition graph...")
+                    transition_graph.prune_graph()
+                    # transition_graph.visualize_graph()
 
                 if timestep % args.update_timestep == 0:
                     ppo_agent.update()
@@ -319,6 +366,12 @@ def main():
                 model_path = os.path.join(model_save_dir, f"ppo_model_{episode}.pth")
                 ppo_agent.save(model_path)
                 print(f"Checkpoint saved at episode {episode} to {model_path}")
+
+                # Save the transition graph periodically
+                graph_save_path = os.path.join(base_dir, f"graph_{episode}.png")
+                transition_graph.visualize_graph()
+                plt.savefig(graph_save_path)
+                print(f"Graph saved at: {graph_save_path}")
 
             # Test the agent periodically
             if episode % args.test_interval == 0:
