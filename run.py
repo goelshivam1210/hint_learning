@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--use-attention', action='store_true', help='Use attention mechanism in PPO.')
     parser.add_argument('--use-smallenv', action='store_true', help='Use environment with smaller action space')
     parser.add_argument('--use-dense', action='store_true', help='Use dense reward function')
-    parser.add_argument('--use-graph-reward', action='store_true', help='Enable graph-based reward shaping.')
+    parser.add_argument('--use_graph_reward', action='store_true', help='Enable graph-based reward shaping.')
 
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
     parser.add_argument('--load-model', type=str, default=None, help='Path to a saved PPO model to resume training.')
@@ -48,7 +48,7 @@ def parse_args():
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
     parser.add_argument('--update_timestep', type=int, default=4000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
-    parser.add_argument('--save_interval', type=int, default=5000, help='Interval to save the model.')
+    parser.add_argument('--save_interval', type=int, default=1000, help='Interval to save the model.')
     parser.add_argument('--log_interval', type=int, default=500, help='Interval to log training progress.')
     parser.add_argument('--test_interval', type=int, default=500, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
@@ -250,8 +250,8 @@ def main():
             state, _ = env.reset()
             # state = (state - state.mean()) / state.std()
             trajectory = []  # Store the trajectory
-
             cumulative_reward = 0
+            cumulative_graph_reward = 0
 
             for t_step in range(args.max_timesteps):
                 timestep += 1
@@ -278,9 +278,19 @@ def main():
                     # Ensure that the transition graph is not empty before accessing rewards
                     graph_reward = 0
                     if len(transition_graph.graph.edges) > 0:  
-                        graph_reward = transition_graph.compute_reward().get(transition, 0)
+                        graph_reward = 5 * transition_graph.compute_reward().get(transition, 0)
 
                     reward += graph_reward  # Modify the reward with the graph-based reward
+                    cumulative_graph_reward += graph_reward  # Accumulate graph-based reward per episode
+                
+                    # **Debugging Statements**
+                    # if graph_reward >0:
+                    #     print(f"[DEBUG] Episode {episode} | Step {t_step}:")
+                    #     print(f"    State Constraints: {prev_state_graph}")
+                    #     print(f"    Next State Constraints: {new_state_graph}")
+                    #     print(f"    Transition: {transition}")
+                    #     print(f"    Graph Reward Applied: {graph_reward:.4f}")
+                    #     print(f"    Cumulative Graph Reward: {cumulative_graph_reward:.4f}")
 
                 # Store state, action, reward
                 trajectory.append({"state": state, "action": action, "reward": reward})
@@ -297,30 +307,25 @@ def main():
                 state = next_state
                 cumulative_reward += reward
 
-                # # PPO update
-                # if timestep % args.update_timestep == 0:
-                #     ppo_agent.update()
-                #     timestep = 0
-
-                        # If a successful trajectory is found, process it
+                # If a successful trajectory is found, process it
                 if "treasure" in env.inventory:
                     print ("Training: Goal state reached!")
-                    
-                    # Process and store trajectory
-                    processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
-                    processor.store_trajectory(processed_trajectory)
-                    
-                    # Add trajectory to the transition graph
-                    transition_graph.add_trajectory(processed_trajectory)
+                    # print(f"[DEBUG] Episode {episode}: Goal reached! Storing trajectory.")
 
-                    # Optimize graph by removing redundant edges
-                    transition_graph.prune_graph()
+                    success_train += 1
                     
-                    # Visualize the updated graph
-                    transition_graph.visualize_graph()
+                    # Process and store trajectory -- graph based reward shaping
+                    if args.use_graph_reward:
+                        processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
+                        # print(f"[DEBUG] Processed Trajectory States: {processed_trajectory}")
+                        processor.store_trajectory(processed_trajectory)
+                        # Add trajectory to the transition graph
+                        transition_graph.add_trajectory(processed_trajectory)
+                        # Optimize graph by removing redundant edges
+                        transition_graph.prune_graph()
 
                 # Periodically update the transition graph
-                if episode % 500 == 0:
+                if episode % 500 == 0 and args.use_graph_reward is True:
                     # print(f"Episode {episode}: Updating transition graph...")
                     transition_graph.prune_graph()
                     # transition_graph.visualize_graph()
@@ -328,22 +333,10 @@ def main():
                 if timestep % args.update_timestep == 0:
                     ppo_agent.update()
 
-                if args.use_smallenv:
-                    if "treasure" in env.inventory:
-                        # print ("Training: Goal state reached!")
-                        success_train += 1
-                else:
-                    if "treasure" in env.inventory:
-                        success_train += 1
-
                 if terminated:
-                    # print("terminated")
-                    # print(t)
                     timsteps_per_episode.append(t_step+1)
                     break
                 if truncated:
-                    # print("truncated")
-                    # print(t)
                     timsteps_per_episode.append(t_step+1)
                     break
 
@@ -351,6 +344,7 @@ def main():
             writer.add_scalar("Train/Reward", cumulative_reward, timestep)
             writer.add_scalar("Train/Success_Rate", success_train / episode, timestep)
             writer.add_scalar("Train/Timesteps_Per_Episode", np.mean(timsteps_per_episode), timestep)
+            writer.add_scalar("Train/Graph_Reward", cumulative_graph_reward, timestep)  # Log graph-based reward
 
             # Print and log
             if episode % args.log_interval == 0:
@@ -367,11 +361,12 @@ def main():
                 ppo_agent.save(model_path)
                 print(f"Checkpoint saved at episode {episode} to {model_path}")
 
-                # Save the transition graph periodically
-                graph_save_path = os.path.join(base_dir, f"graph_{episode}.png")
-                transition_graph.visualize_graph()
-                plt.savefig(graph_save_path)
-                print(f"Graph saved at: {graph_save_path}")
+                # Save graph if enabled
+                if args.use_graph_reward:
+                    graph_save_path = os.path.join(base_dir, f"graph_{episode}.png")
+                    transition_graph.visualize_graph(save_path=graph_save_path)
+                    # plt.savefig(graph_save_path)
+                    # print(f"Graph saved at: {graph_save_path}")
 
             # Test the agent periodically
             if episode % args.test_interval == 0:
@@ -389,14 +384,11 @@ def main():
                     if converged:
                         print(f"Converged with success rate: {avg_success:.2f} (Improvement: {improvement:.2f})")
 
-                          # Log test metrics using total timesteps
+                # Log test metrics using total timesteps
                 writer.add_scalar("Test/Reward", np.mean(test_rewards), timestep)
                 writer.add_scalar("Test/Success_Rate", success_rate, timestep)
                 print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
 
-                # writer.add_scalar("Test/Reward", np.mean(test_rewards), episode)
-                # writer.add_scalar("Test/Success_Rate", success_rate, episode)
-                # print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
                 # Stop training if converged
                 if converged:
                     model_path = os.path.join(model_save_dir, f"ppo_model_converged_{episode}.pth")

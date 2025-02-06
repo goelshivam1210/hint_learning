@@ -20,6 +20,8 @@ class TrajectoryProcessor:
         """Store trajectories by extracting constraints that define graph vertices."""
         
         # print("\n=== DEBUG: store_trajectory ===")
+        # print(f"[DEBUG] Storing Trajectory of Length: {len(trajectory)}")
+
         
         for t in trajectory:
             # Extract values directly from constraint dictionaries
@@ -33,13 +35,13 @@ class TrajectoryProcessor:
 
             # Map constraints to their binary values
             full_symbolic_state = {key: bool(value) for key, value in zip(self.hint_constraints, binary_constraints)}
-            # print(f"Full Symbolic State Mapping: {full_symbolic_state}")
+            # print(f"[DEBUG] Full Symbolic State: {full_symbolic_state}")
 
             # Filter for only graph-relevant constraints
             graph_state = {key: full_symbolic_state[key] for key in self.graph_constraints if key in full_symbolic_state}
             graph_state_tuple = tuple(sorted(graph_state.items()))  # Ensure consistent order
 
-            # print(f"Graph State Tuple: {graph_state_tuple}")
+            # print(f"[DEBUG] Graph State Tuple: {graph_state_tuple}")
 
             # Track occurrences
             if graph_state_tuple not in self.state_occurrences:
@@ -76,9 +78,12 @@ class TransitionGraph:
     def add_trajectory(self, trajectory):
         """Add state transitions to the graph when at least one constraint changes."""
         prev_state = None
+        # print(f"[DEBUG] Adding Trajectory with {len(trajectory)} states")
 
         for state in trajectory:
             state_tuple = tuple(sorted(state.items()))
+            # print(f"[DEBUG] Processing State: {state_tuple}")
+
 
             if not self.constraint_order:
                 self.constraint_order = [key for key, _ in state_tuple]  # Capture order once
@@ -93,6 +98,8 @@ class TransitionGraph:
                 if len(changed_constraints) >= 1:
                     transition_from = tuple(sorted(prev_state.items()))
                     transition_to = tuple(sorted(state.items()))
+                    # print(f"[DEBUG] Transition: {transition_from} → {transition_to}")
+
 
                     if transition_from not in self.graph:
                         self.graph.add_node(transition_from)
@@ -105,11 +112,11 @@ class TransitionGraph:
                     else:
                         self.graph.add_edge(transition_from, transition_to, weight=1)
 
-                    # print(f"Edge Added: {transition_from} → {transition_to}")
+                    # print(f"[DEBUG] Edge Added: {transition_from} → {transition_to}")
 
             prev_state = state
 
-    def visualize_graph(self):
+    def visualize_graph(self, save_path=None):
         """Plot the transition graph with binary node labels and an explicit legend."""
         pos = nx.spring_layout(self.graph)  # Position nodes
 
@@ -135,11 +142,15 @@ class TransitionGraph:
 
             # Use matplotlib text box for cleaner display
             plt.gcf().text(0.85, 0.5, f"Legend:\n\n{legend_text}", fontsize=10, verticalalignment='center',
-                           bbox=dict(facecolor="white", edgecolor="black", boxstyle="round,pad=0.3"))
+                        bbox=dict(facecolor="white", edgecolor="black", boxstyle="round,pad=0.3"))
 
         plt.title("State Transition Graph (Binary Encoding)")
-        plt.close()
-        # plt.savefig()
+
+        # Save
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+            print(f"Graph saved at: {save_path}")
+            plt.close()  # Close after saving
 
     def prune_graph(self):
         """Remove redundant edges where direct transitions exist."""
