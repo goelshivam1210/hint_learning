@@ -32,6 +32,7 @@ def parse_args():
     parser.add_argument('--use_smallenv', action='store_true', help='Use environment with smaller action space')
     parser.add_argument('--use_dense', action='store_true', help='Use dense reward function')
     parser.add_argument('--use_graph_reward', action='store_true', help='Enable graph-based reward shaping.')
+    parser.add_argument('--full_graph', action='store_true', help='Use full graph for reward shaping.')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode for logging.')
 
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
@@ -54,11 +55,19 @@ def parse_args():
     parser.add_argument('--test_interval', type=int, default=500, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
     parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
-    parser.add_argument('--convergence', type=int, default=15, help='Random seed for reproducibility.')
-
+    parser.add_argument('--convergence', type=int, default=15, help='Number of episodes for success rate tracking.')    
+    parser.add_argument('--epsilon', type=float, default=0.01, help='Minimum improvement required for convergence.')
+    
     args = parser.parse_args()
     return args
 
+
+def load_constraints(filepath):
+    """Load all constraints from the YAML file."""
+    with open(filepath, 'r') as file:
+        data = yaml.safe_load(file)
+        return data['hint_constraints']
+    
 def set_seed(seed):
     """
     Set the random seed for Python, NumPy, PyTorch, and CUDA.
@@ -111,7 +120,7 @@ def main():
     # Create a unique identifier for this training instance
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}"
-    instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}_graph_{args.use_graph_reward}"
+    instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}_graph_{args.use_graph_reward}_full_{args.full_graph}"
     # Create a directory for saving models and logs for this training instance
     base_dir = os.path.join("log", instance_id)
     os.makedirs(base_dir, exist_ok=True)
@@ -240,12 +249,20 @@ def main():
 
     # Training Loop
     def train():
+        # Load default constraints
+        graph_constraints = [
+            "inventory(iron_sword) > 0",
+            "facing(iron_ore)",
+            "inventory(iron) > 0"
+        ]
+        # If full graph is enabled, use all constraints from the file
+        if args.full_graph:
+            graph_constraints = load_constraints("constraints.yaml")
+
+        # Initialize processor
         processor = TrajectoryProcessor(constraint_file="constraints.yaml",
-                                        graph_constraints=[
-                                        "inventory(iron_sword) > 0",
-                                        "facing(iron_ore)",
-                                        "inventory(iron) > 0",      
-                        ])
+                                        graph_constraints=graph_constraints)
+        
         transition_graph = TransitionGraph()
         timesteps_per_episode = []
         timestep = 0
@@ -303,11 +320,6 @@ def main():
                         if cumulative_graph_reward > 0:
                             with open(log_file, "a") as f:
                                 f.write(f"[DEBUG] Step {t_step}: Graph Reward={graph_reward}, Cumulative={cumulative_graph_reward}\n")
-
-                # Store transition for graph-based reward shaping
-                trajectory.append({"state": state, "action": action, "reward": reward})
-
-                next_state = (next_state - next_state.mean()) / next_state.std()
 
                 # Store transition
                 trajectory.append({"state": state, "action": action, "reward": reward})
