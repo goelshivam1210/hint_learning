@@ -54,7 +54,7 @@ def parse_args():
     parser.add_argument('--log_interval', type=int, default=500, help='Interval to log training progress.')
     parser.add_argument('--test_interval', type=int, default=500, help='Interval to test the agent.')
     parser.add_argument('--n_test_episodes', type=int, default=25, help='Number of test episodes.')
-    parser.add_argument('--seed', type=int, default=np.random.randint(0, 9), help='Random seed for reproducibility.')
+    parser.add_argument('--seed', type=int, default=12, help='Random seed for reproducibility.')
     parser.add_argument('--convergence', type=int, default=15, help='Number of episodes for success rate tracking.')    
     parser.add_argument('--epsilon', type=float, default=0.01, help='Minimum improvement required for convergence.')
     
@@ -119,8 +119,7 @@ def main():
 
     # Create a unique identifier for this training instance
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}"
-    instance_id = f"ppo_instance_{timestamp}_hints_{args.use_wrapper}_attention_{args.use_attention}_graph_{args.use_graph_reward}_full_{args.full_graph}"
+    instance_id = f"ppo_instance_{timestamp}_seed_{args.seed}_hints_{args.use_wrapper}_attention_{args.use_attention}_graph_{args.use_graph_reward}_full_{args.full_graph}"
     # Create a directory for saving models and logs for this training instance
     base_dir = os.path.join("log", instance_id)
     os.makedirs(base_dir, exist_ok=True)
@@ -140,7 +139,7 @@ def main():
     #     yaml.dump(param_dict, file)
 
     # Environment setup
-    def make_env(seed=args.seed):
+    def make_env(seed=None):
         if args.use_smallenv:
             env = SimpleEnv2(
                 render_mode=None, 
@@ -157,7 +156,7 @@ def main():
             )
         
         if args.seed is not None:
-            env.reset(seed=args.seed)
+            env.reset(seed=seed if seed is not None else np.random.randint(0, 10000))  # Assign fresh seed if not given
 
         if args.use_wrapper:
             wrapped_env = EnvWrapper(env, "constraints.yaml")
@@ -277,7 +276,8 @@ def main():
                 f.write("=== Debug Log ===\n")
         
         for episode in range(last_episode + 1, args.max_episodes + 1):
-            state, _ = env.reset()
+            state, _ = env.reset(seed=args.seed + episode)
+            # state, _ = env.reset()
             state = (state - state.mean()) / state.std()
             trajectory = []  # Store the trajectory
             cumulative_reward = 0
@@ -388,6 +388,10 @@ def main():
                 test_rewards, success_rate = test_agent(test_env, ppo_agent)
                 success_window.append(success_rate)
                 success_window = success_window[-args.convergence:]  # Keep only last `convergence` tests
+                average_test_reward = np.mean(test_rewards)
+                writer.add_scalar("Test/Average_Reward", average_test_reward, timestep)
+                writer.add_scalar("Test/Success_Rate", success_rate, timestep)
+                print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
 
                 if args.debug:
                     with open(log_file, "a") as f:
