@@ -27,11 +27,12 @@ from attention_net_own import AttentionNet
 def parse_args():
     parser = argparse.ArgumentParser(description='Train PPO with optional attention and environment wrapping.')
     # Environment and attention flags
-    parser.add_argument('--use-wrapper', action='store_true', help='Use environment wrapper with constraint encoding.')
-    parser.add_argument('--use-attention', action='store_true', help='Use attention mechanism in PPO.')
-    parser.add_argument('--use-smallenv', action='store_true', help='Use environment with smaller action space')
-    parser.add_argument('--use-dense', action='store_true', help='Use dense reward function')
+    parser.add_argument('--use_wrapper', action='store_true', help='Use environment wrapper with constraint encoding.')
+    parser.add_argument('--use_attention', action='store_true', help='Use attention mechanism in PPO.')
+    parser.add_argument('--use_smallenv', action='store_true', help='Use environment with smaller action space')
+    parser.add_argument('--use_dense', action='store_true', help='Use dense reward function')
     parser.add_argument('--use_graph_reward', action='store_true', help='Enable graph-based reward shaping.')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode for logging.')
 
     parser.add_argument('--device', type=str, default='mps', choices=['cpu', 'cuda', 'mps'], help='Device to run the model on.')
     parser.add_argument('--load-model', type=str, default=None, help='Path to a saved PPO model to resume training.')
@@ -44,7 +45,7 @@ def parse_args():
     parser.add_argument('--K-epochs', type=int, default=5, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
     parser.add_argument('--grid_size', type=int, default=12, help='Size of the gridworld')
-    parser.add_argument('--max_episodes', type=int, default=30000, help='Maximum number of training episodes.')
+    parser.add_argument('--max_episodes', type=int, default=20000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
     parser.add_argument('--update_timestep', type=int, default=4000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
@@ -130,7 +131,7 @@ def main():
     #     yaml.dump(param_dict, file)
 
     # Environment setup
-    def make_env(seed=None):
+    def make_env(seed=args.seed):
         if args.use_smallenv:
             env = SimpleEnv2(
                 render_mode=None, 
@@ -146,8 +147,8 @@ def main():
                 size=args.grid_size
             )
         
-        if seed is not None:
-            env.reset(seed=seed)
+        if args.seed is not None:
+            env.reset(seed=args.seed)
 
         if args.use_wrapper:
             wrapped_env = EnvWrapper(env, "constraints.yaml")
@@ -232,6 +233,11 @@ def main():
     with open(os.path.join(base_dir, "params.yaml"), 'w') as file:
         yaml.dump(param_dict, file)
 
+    # save logs for debugging
+    log_file = os.path.join(base_dir, "debug_log.txt")
+    with open(log_file, "w") as f:
+        f.write("=== Debug Log ===\n")  # Create log header
+
     # Training Loop
     def train():
         processor = TrajectoryProcessor(constraint_file="constraints.yaml",
@@ -241,17 +247,28 @@ def main():
                                         "inventory(iron) > 0",      
                         ])
         transition_graph = TransitionGraph()
-        timsteps_per_episode = []
+        timesteps_per_episode = []
         timestep = 0
         success_train = 0
         success_window = []
         converged = False
+        
+        # log debug 
+        log_file = os.path.join(base_dir, "debug_log.txt")
+        if args.debug:
+            with open(log_file, "w") as f:
+                f.write("=== Debug Log ===\n")
+        
         for episode in range(last_episode + 1, args.max_episodes + 1):
             state, _ = env.reset()
-            # state = (state - state.mean()) / state.std()
+            state = (state - state.mean()) / state.std()
             trajectory = []  # Store the trajectory
             cumulative_reward = 0
             cumulative_graph_reward = 0
+  
+            if args.debug:
+                with open(log_file, "a") as f:
+                    f.write(f"\n[DEBUG] Episode {episode} START\n")
 
             for t_step in range(args.max_timesteps):
                 timestep += 1
@@ -272,149 +289,251 @@ def main():
                 if args.use_graph_reward:
                     prev_state_graph = processor.extract_constraints(state)  
                     new_state_graph = processor.extract_constraints(next_state)
-
                     transition = (tuple(sorted(prev_state_graph.items())), tuple(sorted(new_state_graph.items())))
-
-                    # Ensure that the transition graph is not empty before accessing rewards
-                    graph_reward = 0
-                    if len(transition_graph.graph.edges) > 0:  
-                        graph_reward = 5 * transition_graph.compute_reward().get(transition, 0)
-
-                    reward += graph_reward  # Modify the reward with the graph-based reward
+           
+                    # Compute graph-based reward
+                    graph_reward = (
+                        5 * transition_graph.compute_reward().get(transition, 0)
+                        if len(transition_graph.graph.edges) > 0 else 0
+                    )
+                    reward += graph_reward
                     cumulative_graph_reward += graph_reward  # Accumulate graph-based reward per episode
-                
-                    # **Debugging Statements**
-                    # if graph_reward >0:
-                    #     print(f"[DEBUG] Episode {episode} | Step {t_step}:")
-                    #     print(f"    State Constraints: {prev_state_graph}")
-                    #     print(f"    Next State Constraints: {new_state_graph}")
-                    #     print(f"    Transition: {transition}")
-                    #     print(f"    Graph Reward Applied: {graph_reward:.4f}")
-                    #     print(f"    Cumulative Graph Reward: {cumulative_graph_reward:.4f}")
 
-                # Store state, action, reward
+                    if args.debug:
+                        if cumulative_graph_reward > 0:
+                            with open(log_file, "a") as f:
+                                f.write(f"[DEBUG] Step {t_step}: Graph Reward={graph_reward}, Cumulative={cumulative_graph_reward}\n")
+
+                # Store transition for graph-based reward shaping
                 trajectory.append({"state": state, "action": action, "reward": reward})
 
                 next_state = (next_state - next_state.mean()) / next_state.std()
-                # if reward != -0.1:
-                #     print(reward)
 
                 # Store transition
+                trajectory.append({"state": state, "action": action, "reward": reward})
                 ppo_agent.buffer.rewards.append(reward)
                 ppo_agent.buffer.is_terminals.append(terminated or truncated)
 
-                # Move to the next state
-                state = next_state
+                # Normalize next state and move forward
+                state = (next_state - next_state.mean()) / next_state.std()
                 cumulative_reward += reward
 
-                # If a successful trajectory is found, process it
-                if "treasure" in env.inventory:
-                    print ("Training: Goal state reached!")
-                    # print(f"[DEBUG] Episode {episode}: Goal reached! Storing trajectory.")
+                    # Stop episode if terminated or truncated
+                if terminated or truncated:
+                    timesteps_per_episode.append(t_step + 1)
 
-                    success_train += 1
-                    
-                    # Process and store trajectory -- graph based reward shaping
-                    if args.use_graph_reward:
-                        processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
-                        # print(f"[DEBUG] Processed Trajectory States: {processed_trajectory}")
-                        processor.store_trajectory(processed_trajectory)
-                        # Add trajectory to the transition graph
-                        transition_graph.add_trajectory(processed_trajectory)
-                        # Optimize graph by removing redundant edges
-                        transition_graph.prune_graph()
+                    # If goal state was reached, process trajectory
+                    if env.treasure_obtained:
+                        success_train += 1
 
-                # Periodically update the transition graph
-                if episode % 500 == 0 and args.use_graph_reward is True:
-                    # print(f"Episode {episode}: Updating transition graph...")
-                    transition_graph.prune_graph()
-                    # transition_graph.visualize_graph()
+                        if args.debug:
+                            with open(log_file, "a") as f:
+                                f.write(f"[DEBUG] Episode {episode}: Goal Reached!\n")
 
-                if timestep % args.update_timestep == 0:
-                    ppo_agent.update()
+                        if args.use_graph_reward:
+                            processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
+                            processor.store_trajectory(processed_trajectory)
+                            transition_graph.add_trajectory(processed_trajectory)
 
-                if terminated:
-                    timsteps_per_episode.append(t_step+1)
-                    break
-                if truncated:
-                    timsteps_per_episode.append(t_step+1)
-                    break
+                    break  # Stop processing further steps
 
-            # TensorBoard logging
+            # Periodically update transition graph
+            if episode % 500 == 0 and args.use_graph_reward:
+                processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
+                processor.store_trajectory(processed_trajectory)
+                transition_graph.add_trajectory(processed_trajectory)
+                transition_graph.visualize_graph(save_path=os.path.join(base_dir, f"graph_{episode}.png"))
+
+                if args.debug:
+                    with open(log_file, "a") as f:
+                        f.write(f"[DEBUG] Episode {episode}: Transition Graph Updated\n")
+
+            # PPO update step
+            if timestep % args.update_timestep == 0:
+                ppo_agent.update()
+                if args.debug:
+                    with open(log_file, "a") as f:
+                        f.write(f"[DEBUG] PPO Update at timestep {timestep}\n")
+
+            # Logging
             writer.add_scalar("Train/Reward", cumulative_reward, timestep)
             writer.add_scalar("Train/Success_Rate", success_train / episode, timestep)
-            writer.add_scalar("Train/Timesteps_Per_Episode", np.mean(timsteps_per_episode), timestep)
-            writer.add_scalar("Train/Graph_Reward", cumulative_graph_reward, timestep)  # Log graph-based reward
+            writer.add_scalar("Train/Timesteps_Per_Episode", np.mean(timesteps_per_episode), timestep)
+            writer.add_scalar("Train/Graph_Reward", cumulative_graph_reward, timestep)
 
-            # Print and log
+            # Periodic logging and model saving
             if episode % args.log_interval == 0:
                 print(f"Episode {episode}/{args.max_episodes}, Reward: {cumulative_reward:.2f}")
 
-            # Save latest model (overwrites every time)
-            latest_model_path = os.path.join(model_save_dir, "ppo_latest.pth")
-            ppo_agent.save(latest_model_path)
-            # print(f"Latest model saved at {latest_model_path}")
-
-            # Save periodic checkpoints
-            if episode % args.save_interval == 0 or episode == args.max_episodes-1:
+            ppo_agent.save(os.path.join(model_save_dir, "ppo_latest.pth"))
+            if episode % args.save_interval == 0 or episode == args.max_episodes - 1:
                 model_path = os.path.join(model_save_dir, f"ppo_model_{episode}.pth")
                 ppo_agent.save(model_path)
                 print(f"Checkpoint saved at episode {episode} to {model_path}")
 
-                # Save graph if enabled
-                if args.use_graph_reward:
-                    graph_save_path = os.path.join(base_dir, f"graph_{episode}.png")
-                    transition_graph.visualize_graph(save_path=graph_save_path)
-                    # plt.savefig(graph_save_path)
-                    # print(f"Graph saved at: {graph_save_path}")
-
-            # Test the agent periodically
+            # Periodic testing
             if episode % args.test_interval == 0:
                 test_rewards, success_rate = test_agent(test_env, ppo_agent)
-                # Append the success rate to the sliding window
                 success_window.append(success_rate)
+                success_window = success_window[-args.convergence:]  # Keep only last `convergence` tests
 
-                # Maintain the window size (last 10 test results)
-                if len(success_window) > args.convergence:
-                    success_window.pop(0)
+                if args.debug:
+                    with open(log_file, "a") as f:
+                        f.write(f"[DEBUG] Test Success Rate: {success_rate:.2f}\n")
 
-                # Check for convergence: if the average success rate over the last 10 tests is > 95%
+                # Check for convergence
                 if len(success_window) == args.convergence and np.mean(success_window) >= 0.95:
                     converged, avg_success, improvement = has_converged(success_window, args.epsilon)
                     if converged:
                         print(f"Converged with success rate: {avg_success:.2f} (Improvement: {improvement:.2f})")
+                        ppo_agent.save(os.path.join(model_save_dir, f"ppo_model_converged_{episode}.pth"))
+                        print(f"Converged and saved model at {model_path}")
+                        break
 
-                # Log test metrics using total timesteps
-                writer.add_scalar("Test/Reward", np.mean(test_rewards), timestep)
-                writer.add_scalar("Test/Success_Rate", success_rate, timestep)
-                print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
-
-                # Stop training if converged
-                if converged:
-                    model_path = os.path.join(model_save_dir, f"ppo_model_converged_{episode}.pth")
-                    ppo_agent.save(model_path)
-                    print(f"Converged and saved model at {model_path}")
-                    break
-        # Directory to save the video
+        # Save training videos
         video_dir = os.path.join(base_dir, "videos")
         os.makedirs(video_dir, exist_ok=True)
 
-        # Set the episode trigger to only save video for the first 5 episodes
-        video_env = RecordVideo(make_env_for_video(), video_dir, episode_trigger=lambda x: x < 5)  # Save videos for episodes 1-5
-
-        # Loop through episodes for video recording (limited to the first 5)
-        for episode in range(1, 6):  # Loop only for 5 episodes
+        video_env = RecordVideo(make_env_for_video(), video_dir, episode_trigger=lambda x: x < 5)
+        for episode in range(1, 6):
             state, _ = video_env.reset()
-            terminated, truncated = False, False
-            while not (terminated or truncated):
-                action = ppo_agent.select_action(state)
-                state, _, terminated, truncated, _ = video_env.step(action)
-
+            while not any(video_env.step(ppo_agent.select_action(state))[2:4]):  # Run until terminated/truncated
+                pass
             print(f"Video saved for episode {episode}")
 
         video_env.close()
         print(f"Videos saved to {video_dir}")
-        writer.close()
+        writer.close()           
+                    
+        #         # If a successful trajectory is found, process it
+        #         if "treasure" in env.inventory:
+        #             print ("Training: Goal state reached!")
+        #             # print(f"[DEBUG] Episode {episode}: Goal reached! Storing trajectory.")
+
+        #             success_train += 1
+                    
+        #             # Process and store trajectory -- graph based reward shaping
+        #             if args.use_graph_reward:
+        #                 processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
+        #                 # print(f"[DEBUG] Processed Trajectory States: {processed_trajectory}")
+        #                 processor.store_trajectory(processed_trajectory)
+        #                 # Add trajectory to the transition graph
+        #                 transition_graph.add_trajectory(processed_trajectory)
+
+        #                 # with open(log_file, "a") as f:
+        #                 #     f.write(f"[DEBUG] Episode {episode}: Added Edges -> {list(transition_graph.graph.edges)}\n")
+        #                 #     f.write(f"[DEBUG] Episode {episode}: Before Pruning, Graph Edges -> {list(transition_graph.graph.edges)}\n")
+        #                 # Optimize graph by removing redundant edges
+                        
+        #                 # transition_graph.prune_graph()
+                        
+        #                 # with open(log_file, "a") as f:
+        #                 #     f.write(f"[DEBUG] Episode {episode}: Nodes AFTER Pruning -> {list(transition_graph.graph.nodes)}\n")
+        #                 #     f.write(f"[DEBUG] Episode {episode}: Edges AFTER Pruning -> {list(transition_graph.graph.edges)}\n")
+
+        #                 # save the graph
+        #                 # graph_save_path = os.path.join(base_dir, f"graph_{episode}.png")
+        #                 # transition_graph.visualize_graph(save_path=graph_save_path)
+
+        #         # Periodically update the transition graph
+        #         if episode % 500 == 0 and args.use_graph_reward is True:
+        #             processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
+        #             processor.store_trajectory(processed_trajectory)
+        #             transition_graph.add_trajectory(processed_trajectory)
+        #             # print(f"Episode {episode}: Updating transition graph...")
+        #             # transition_graph.prune_graph()
+        #             # transition_graph.visualize_graph()
+        #             graph_save_path = os.path.join(base_dir, f"graph_{episode}.png")
+        #             transition_graph.visualize_graph(save_path=graph_save_path)
+
+
+        #         if timestep % args.update_timestep == 0:
+        #             ppo_agent.update()
+
+        #         if terminated:
+        #             timsteps_per_episode.append(t_step+1)
+        #             break
+        #         if truncated:
+        #             timsteps_per_episode.append(t_step+1)
+        #             break
+            
+        #     # with open(log_file, "a") as f:
+        #         # f.write(f"[DEBUG] Episode {episode} END: Final Cumulative Graph Reward={cumulative_graph_reward}\n")
+        #     # TensorBoard logging
+        #     writer.add_scalar("Train/Reward", cumulative_reward, timestep)
+        #     writer.add_scalar("Train/Success_Rate", success_train / episode, timestep)
+        #     writer.add_scalar("Train/Timesteps_Per_Episode", np.mean(timsteps_per_episode), timestep)
+        #     writer.add_scalar("Train/Graph_Reward", cumulative_graph_reward, timestep)  # Log graph-based reward
+
+        #     # Print and log
+        #     if episode % args.log_interval == 0:
+        #         print(f"Episode {episode}/{args.max_episodes}, Reward: {cumulative_reward:.2f}")
+
+        #     # Save latest model (overwrites every time)
+        #     latest_model_path = os.path.join(model_save_dir, "ppo_latest.pth")
+        #     ppo_agent.save(latest_model_path)
+        #     # print(f"Latest model saved at {latest_model_path}")
+
+        #     # Save periodic checkpoints
+        #     if episode % args.save_interval == 0 or episode == args.max_episodes-1:
+        #         model_path = os.path.join(model_save_dir, f"ppo_model_{episode}.pth")
+        #         ppo_agent.save(model_path)
+        #         print(f"Checkpoint saved at episode {episode} to {model_path}")
+
+        #         # Save graph if enabled
+        #         if args.use_graph_reward:
+        #             graph_save_path = os.path.join(base_dir, f"graph_{episode}.png")
+        #             transition_graph.visualize_graph(save_path=graph_save_path)
+        #             # plt.savefig(graph_save_path)
+        #             # print(f"Graph saved at: {graph_save_path}")
+
+        #     # Test the agent periodically
+        #     if episode % args.test_interval == 0:
+        #         test_rewards, success_rate = test_agent(test_env, ppo_agent)
+        #         # Append the success rate to the sliding window
+        #         success_window.append(success_rate)
+
+        #         # Maintain the window size (last 10 test results)
+        #         if len(success_window) > args.convergence:
+        #             success_window.pop(0)
+
+        #         # Check for convergence: if the average success rate over the last 10 tests is > 95%
+        #         if len(success_window) == args.convergence and np.mean(success_window) >= 0.95:
+        #             converged, avg_success, improvement = has_converged(success_window, args.epsilon)
+        #             if converged:
+        #                 print(f"Converged with success rate: {avg_success:.2f} (Improvement: {improvement:.2f})")
+
+        #         # Log test metrics using total timesteps
+        #         writer.add_scalar("Test/Reward", np.mean(test_rewards), timestep)
+        #         writer.add_scalar("Test/Success_Rate", success_rate, timestep)
+        #         print(f"Test Episode {episode}: Avg Reward: {np.mean(test_rewards):.2f}, Success Rate: {success_rate * 100:.2f}%")
+
+        #         # Stop training if converged
+        #         if converged:
+        #             model_path = os.path.join(model_save_dir, f"ppo_model_converged_{episode}.pth")
+        #             ppo_agent.save(model_path)
+        #             print(f"Converged and saved model at {model_path}")
+        #             break
+        # # Directory to save the video
+        # video_dir = os.path.join(base_dir, "videos")
+        # os.makedirs(video_dir, exist_ok=True)
+
+        # # Set the episode trigger to only save video for the first 5 episodes
+        # video_env = RecordVideo(make_env_for_video(), video_dir, episode_trigger=lambda x: x < 5)  # Save videos for episodes 1-5
+
+        # # Loop through episodes for video recording (limited to the first 5)
+        # for episode in range(1, 6):  # Loop only for 5 episodes
+        #     state, _ = video_env.reset()
+        #     terminated, truncated = False, False
+        #     while not (terminated or truncated):
+        #         action = ppo_agent.select_action(state)
+        #         state, _, terminated, truncated, _ = video_env.step(action)
+
+        #     print(f"Video saved for episode {episode}")
+
+        # video_env.close()
+        # print(f"Videos saved to {video_dir}")
+        # writer.close()
 
     # Testing function
     def test_agent(env, agent):
@@ -442,16 +561,11 @@ def main():
                 state = next_state
 
                 if terminated or truncated:
+                    if env.treasure_obtained:
+                        successes += 1
                     break
 
             rewards.append(cumulative_reward)
-            if args.use_smallenv:
-                if "treasure" in env.inventory:
-                    # print ("Testing: Goal state reached!")
-                    successes += 1
-            else:
-                if "treasure" in env.inventory:
-                    successes += 1
 
         success_rate = successes / args.n_test_episodes
         return rewards, success_rate

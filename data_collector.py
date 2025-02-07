@@ -149,7 +149,7 @@ class TransitionGraph:
         # Save
         if save_path:
             plt.savefig(save_path, dpi=300)
-            print(f"Graph saved at: {save_path}")
+            # print(f"Graph saved at: {save_path}")
             plt.close()  # Close after saving
 
     def prune_graph(self):
