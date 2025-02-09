@@ -18,56 +18,41 @@ class TrajectoryProcessor:
 
     def store_trajectory(self, trajectory):
         """Store trajectories by extracting constraints that define graph vertices."""
-        
-        # print("\n=== DEBUG: store_trajectory ===")
-        # print(f"[DEBUG] Storing Trajectory of Length: {len(trajectory)}")
 
         
         for t in trajectory:
             # Extract values directly from constraint dictionaries
             constraint_values = list(t.values())  
-            # print(f"\nRaw Extracted Constraint Dictionary: {t}")
-            # print(f"Extracted Constraint Values: {constraint_values}")
 
             # Convert to binary representation (0 or 1)
             binary_constraints = [1 if value > 0.5 else 0 for value in constraint_values]
-            # print(f"Binary Constraints: {binary_constraints}")
 
             # Map constraints to their binary values
             full_symbolic_state = {key: bool(value) for key, value in zip(self.hint_constraints, binary_constraints)}
-            # print(f"[DEBUG] Full Symbolic State: {full_symbolic_state}")
 
             # Filter for only graph-relevant constraints
             graph_state = {key: full_symbolic_state[key] for key in self.graph_constraints if key in full_symbolic_state}
             graph_state_tuple = tuple(sorted(graph_state.items()))  # Ensure consistent order
-
-            # print(f"[DEBUG] Graph State Tuple: {graph_state_tuple}")
 
             # Track occurrences
             if graph_state_tuple not in self.state_occurrences:
                 self.state_occurrences[graph_state_tuple] = 0
             self.state_occurrences[graph_state_tuple] += 1
 
-            # print("=========================================") 
 
     def extract_constraints(self, state):
         """Extract only graph-related constraints from the state vector."""
         encoded_constraints = state[-len(self.hint_constraints):]  # Extract last N values
-        
-        # print(f"Expected constraint length: {len(self.hint_constraints)}, Actual state length: {len(state)}")
-        # print(f"Extracted Encoded Constraints (Raw from State Vector): {encoded_constraints}")
+
         
         # Convert raw values to binary interpretation based on a threshold (e.g., 0.5)
         binary_constraints = [1 if value > 0 else 0 for value in encoded_constraints]
 
         full_symbolic_state = {key: bool(value) for key, value in zip(self.hint_constraints, binary_constraints)}
-        
-        # print(f"Interpreted Binary Constraints: {binary_constraints}")
+    
 
         graph_state = {key: full_symbolic_state[key] for key in self.graph_constraints if key in full_symbolic_state}
         
-        # print(f"Graph State: {graph_state}")
-
         return graph_state  # Return dictionary of relevant constraints
 
 class TransitionGraph:
@@ -75,44 +60,41 @@ class TransitionGraph:
         self.graph = nx.DiGraph()
         self.constraint_order = []  # Store constraint order for legend
 
-    def add_trajectory(self, trajectory):
+
+    def add_trajectory(self, trajectory, max_nodes=5000):
         """Add state transitions to the graph when at least one constraint changes."""
         prev_state = None
-        # print(f"[DEBUG] Adding Trajectory with {len(trajectory)} states")
 
         for state in trajectory:
             state_tuple = tuple(sorted(state.items()))
-            # print(f"[DEBUG] Processing State: {state_tuple}")
+            
+            # Prune if graph exceeds limit (removes least connected node)
+            if len(self.graph.nodes) >= max_nodes:
+                least_used_node = min(self.graph.nodes, key=lambda n: self.graph.degree[n])
+                self.graph.remove_node(least_used_node)
 
-
+            # Capture constraint order once
             if not self.constraint_order:
-                self.constraint_order = [key for key, _ in state_tuple]  # Capture order once
+                self.constraint_order = [key for key, _ in state_tuple]  
 
-            # Ensure the state node exists in the graph
-            if state_tuple not in self.graph:
-                self.graph.add_node(state_tuple)
+            # Ensure state node exists
+            self.graph.add_node(state_tuple)
 
             if prev_state:
                 changed_constraints = [key for key in state if state[key] != prev_state[key]]
 
                 if len(changed_constraints) >= 1:
                     transition_from = tuple(sorted(prev_state.items()))
-                    transition_to = tuple(sorted(state.items()))
-                    # print(f"[DEBUG] Transition: {transition_from} → {transition_to}")
+                    transition_to = state_tuple  # No need to sort again
 
+                    self.graph.add_node(transition_from)
+                    self.graph.add_node(transition_to)
 
-                    if transition_from not in self.graph:
-                        self.graph.add_node(transition_from)
-                    if transition_to not in self.graph:
-                        self.graph.add_node(transition_to)
-
-                    # Add an edge
+                    # Add weighted edge
                     if self.graph.has_edge(transition_from, transition_to):
                         self.graph[transition_from][transition_to]["weight"] += 1
                     else:
                         self.graph.add_edge(transition_from, transition_to, weight=1)
-
-                    # print(f"[DEBUG] Edge Added: {transition_from} → {transition_to}")
 
             prev_state = state
 

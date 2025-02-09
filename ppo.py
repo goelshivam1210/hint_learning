@@ -27,62 +27,7 @@ class ActorCritic(nn.Module):
         
         # Attention network (optional)
         self.attention_net = attention_net
-        
-        # Actor network for discrete action space
-        # self.actor = nn.Sequential(
-        #     nn.Linear(state_dim, 64),
-        #     nn.Tanh(),
-        #     nn.Linear(64, 64),
-        #     nn.Tanh(),
-        #     nn.Linear(64, action_dim),
-        #     nn.Softmax(dim=-1)
-        # )
-
-        # # Critic network
-        # self.critic = nn.Sequential(
-        #     nn.Linear(state_dim, 64),
-        #     nn.Tanh(),
-        #     nn.Linear(64, 64),
-        #     nn.Tanh(),
-        #     nn.Linear(64, 1)
-        # )
-
-        # # Actor network
-        # self.actor = nn.Sequential(
-        #     nn.Linear(state_dim, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, action_dim),
-        #     nn.Softmax(dim=-1)
-        # )
-
-        # # Critic network
-        # self.critic = nn.Sequential(
-        #     nn.Linear(state_dim, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, 1)
-        # )
-
-        # self.actor = nn.Sequential(
-        #     nn.Linear(state_dim, 256),  # Input to 256 neurons
-        #     nn.ReLU(),
-        #     nn.Linear(256, 64),         # 256 to 64 neurons
-        #     nn.ReLU(),
-        #     nn.Linear(64, action_dim),  # 64 to number of actions
-        #     nn.Softmax(dim=-1)
-        # )
-
-        # self.critic = nn.Sequential(
-        #     nn.Linear(state_dim, 256),  # Input to 256 neurons
-        #     nn.ReLU(),
-        #     nn.Linear(256, 64),         # 256 to 64 neurons
-        #     nn.ReLU(),
-        #     nn.Linear(64, 1)            # 64 to single value (state value)
-        # )
-
+    
         # Actor network
         self.actor = nn.Sequential(
             nn.Linear(state_dim, 256),  # Input layer -> Hidden layer: 128
@@ -113,23 +58,6 @@ class ActorCritic(nn.Module):
             # nn.Dropout(0.1),
             nn.Linear(64, 1)           # Output layer: 64 -> Single value (state value)
         )
-
-        # self.actor = nn.Sequential(
-        #     nn.Linear(state_dim, 128),  # Input layer -> Hidden layer: 128
-        #     nn.ReLU(),
-        #     nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
-        #     nn.ReLU(),
-        #     nn.Linear(64, action_dim),    # Output layer: 64 -> Action space: 5
-        #     nn.Softmax(dim=-1) 
-        #   )  # Output probabilities
-
-        # self.critic = nn.Sequential(
-        #     nn.Linear(state_dim, 128),  # Input layer: 40 -> Hidden layer: 128
-        #     nn.ReLU(),
-        #     nn.Linear(128, 64),  # Hidden layer: 128 -> Hidden layer: 64
-        #     nn.ReLU(),
-        #     nn.Linear(64, 1)     # Output layer: 64 -> Single value (state value)
-        # )
     
     def forward(self):
         raise NotImplementedError
@@ -219,6 +147,9 @@ class PPO:
         old_actions = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(device)
         old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(device)
 
+        total_loss = 0
+        all_advantages = []
+
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
             # In case you want to use constraints for the update, pass them here
@@ -231,6 +162,7 @@ class PPO:
             
             # Calculate advantages
             advantages = rewards - state_values.detach()
+            all_advantages.append(advantages)
             
             # Surrogate loss
             surr1 = ratios * advantages
@@ -238,6 +170,7 @@ class PPO:
 
             # Final loss of clipped objective PPO
             loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
+            total_loss += loss.mean().item()
             
             # Take gradient step
             self.optimizer.zero_grad()
@@ -249,6 +182,9 @@ class PPO:
 
         # Clear buffer
         self.buffer.clear()
+        torch.cuda.empty_cache()
+
+        return total_loss / self.K_epochs, torch.stack(all_advantages).mean()
 
     def save(self, checkpoint_path):
         torch.save(self.policy_old.state_dict(), checkpoint_path)
@@ -256,50 +192,3 @@ class PPO:
     def load(self, checkpoint_path):
         self.policy_old.load_state_dict(torch.load(checkpoint_path))
         self.policy.load_state_dict(torch.load(checkpoint_path))
-
-
-
-
-# class ActorCritic(nn.Module):
-#     def __init__(self, state_dim, action_dim):
-#         super(ActorCritic, self).__init__()
-#         # print (f"state_dim = {state_dim}; action_dim = {action_dim}")
-        
-#         # Actor network for discrete action space
-#         self.actor = nn.Sequential(
-#             nn.Linear(state_dim, 64),
-#             nn.Tanh(),
-#             nn.Linear(64, 64),
-#             nn.Tanh(),
-#             nn.Linear(64, action_dim),
-#             nn.Softmax(dim=-1)
-#         )
-
-#         # Critic network
-#         self.critic = nn.Sequential(
-#             nn.Linear(state_dim, 64),
-#             nn.Tanh(),
-#             nn.Linear(64, 64),
-#             nn.Tanh(),
-#             nn.Linear(64, 1)
-#         )
-    
-#     def forward(self):
-#         raise NotImplementedError
-    
-#     def act(self, state):
-#         action_probs = self.actor(state)
-#         dist = Categorical(action_probs)
-#         action = dist.sample()
-#         action_logprob = dist.log_prob(action)
-#         return action.detach(), action_logprob.detach()
-    
-#     def evaluate(self, state, action):
-#         action_probs = self.actor(state)
-#         dist = Categorical(action_probs)
-
-#         action_logprobs = dist.log_prob(action)
-#         dist_entropy = dist.entropy()
-#         state_value = self.critic(state)
-        
-#         return action_logprobs, state_value, dist_entropy

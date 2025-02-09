@@ -1,5 +1,6 @@
 import os
 import random
+import gc
 import torch
 import torch.nn as nn
 import numpy as np
@@ -40,15 +41,15 @@ def parse_args():
     parser.add_argument('--logdir', type=str, default=None, help='Path to an existing TensorBoard log directory to resume training.')
 
     # Hyperparameters
-    parser.add_argument('--lr-actor', type=float, default=0.0003, help='Learning rate for the actor.')
-    parser.add_argument('--lr-critic', type=float, default=0.001, help='Learning rate for the critic.')
+    parser.add_argument('--lr-actor', type=float, default=0.0005, help='Learning rate for the actor.')
+    parser.add_argument('--lr-critic', type=float, default=0.002, help='Learning rate for the critic.')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for PPO.')
     parser.add_argument('--K-epochs', type=int, default=5, help='Number of PPO epochs per update.')
     parser.add_argument('--eps-clip', type=float, default=0.2, help='Clip range for PPO updates.')
     parser.add_argument('--grid_size', type=int, default=12, help='Size of the gridworld')
     parser.add_argument('--max_episodes', type=int, default=20000, help='Maximum number of training episodes.')
     parser.add_argument('--max_timesteps', type=int, default=500, help='Maximum number of timesteps per episode.')
-    parser.add_argument('--update_timestep', type=int, default=4000, help='Timesteps after which PPO update is triggered.')
+    parser.add_argument('--update_timestep', type=int, default=2000, help='Timesteps after which PPO update is triggered.')
     parser.add_argument('--batch_size', type=int, default=128, help="how many collected timesteps (from the environment rollouts) are used in one gradient update.")
     parser.add_argument('--save_interval', type=int, default=1000, help='Interval to save the model.')
     parser.add_argument('--log_interval', type=int, default=500, help='Interval to log training progress.')
@@ -349,8 +350,28 @@ def main():
 
                     break  # Stop processing further steps
 
-            # Periodically update transition graph
+                # PPO update block
+                if timestep % args.update_timestep == 0:
+                    # print(f"timestep number {timestep}, updating to PPO")
+                    loss, advantages = ppo_agent.update() 
+                    # with open(log_file, "a") as f:
+                    #     f.write(f"[DEBUG] PPO Update at timestep {timestep}: Loss={loss}, Advantage={advantages.mean().item()}\n")
+                    writer.add_scalar("PPO/Loss", loss, timestep)
+                    writer.add_scalar("PPO/Advantage", advantages.mean().item(), timestep)
+                    writer.flush()
+
+                    if args.debug:
+                        with open(log_file, "a") as f:
+                            f.write(f"[DEBUG] PPO Update at timestep {timestep}: Loss={loss}, Advantage={advantages.mean().item()}\n")
+
+            # # Periodically clear memory
+            # if episode % 100 == 0:
+            #     gc.collect()
+            #     torch.cuda.empty_cache()
+
+            # transition update graph
             if episode % 500 == 0 and args.use_graph_reward:
+                print(f"Episode {episode}: Updating Transition Graph")
                 processed_trajectory = [processor.extract_constraints(t["state"]) for t in trajectory]
                 processor.store_trajectory(processed_trajectory)
                 transition_graph.add_trajectory(processed_trajectory)
@@ -360,12 +381,8 @@ def main():
                     with open(log_file, "a") as f:
                         f.write(f"[DEBUG] Episode {episode}: Transition Graph Updated\n")
 
-            # PPO update step
-            if timestep % args.update_timestep == 0:
-                ppo_agent.update()
-                if args.debug:
-                    with open(log_file, "a") as f:
-                        f.write(f"[DEBUG] PPO Update at timestep {timestep}\n")
+            with open(log_file, "a") as f:
+                f.write(f"[DEBUG] Episode {episode}: Reward={cumulative_reward}, GraphReward={cumulative_graph_reward}\n")
 
             # Logging
             writer.add_scalar("Train/Reward", cumulative_reward, timestep)
