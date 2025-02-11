@@ -58,7 +58,8 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=12, help='Random seed for reproducibility.')
     parser.add_argument('--convergence', type=int, default=15, help='Number of episodes for success rate tracking.')    
     parser.add_argument('--epsilon', type=float, default=0.01, help='Minimum improvement required for convergence.')
-    
+    parser.add_argument('--graph_scaling', type=float, default=10, help='Scaling factor for graph-based reward.')
+
     args = parser.parse_args()
     return args
 
@@ -283,6 +284,7 @@ def main():
             trajectory = []  # Store the trajectory
             cumulative_reward = 0
             cumulative_graph_reward = 0
+            transition_graph.reset_episode() # Reset seen transitions for the episode
   
             if args.debug:
                 with open(log_file, "a") as f:
@@ -310,10 +312,11 @@ def main():
                     transition = (tuple(sorted(prev_state_graph.items())), tuple(sorted(new_state_graph.items())))
            
                     # Compute graph-based reward
-                    graph_reward = (
-                        5 * transition_graph.compute_reward().get(transition, 0)
-                        if len(transition_graph.graph.edges) > 0 else 0
-                    )
+                    # graph_reward = (
+                    #     args.graph_scaling * transition_graph.compute_reward().get(transition, 0)
+                    #     if len(transition_graph.graph.edges) > 0 else 0
+                    # )
+                    graph_reward = transition_graph.compute_reward(transition)
                     reward += graph_reward
                     cumulative_graph_reward += graph_reward  # Accumulate graph-based reward per episode
 
@@ -352,10 +355,7 @@ def main():
 
                 # PPO update block
                 if timestep % args.update_timestep == 0:
-                    # print(f"timestep number {timestep}, updating to PPO")
                     loss, advantages = ppo_agent.update() 
-                    # with open(log_file, "a") as f:
-                    #     f.write(f"[DEBUG] PPO Update at timestep {timestep}: Loss={loss}, Advantage={advantages.mean().item()}\n")
                     writer.add_scalar("PPO/Loss", loss, timestep)
                     writer.add_scalar("PPO/Advantage", advantages.mean().item(), timestep)
                     writer.flush()
@@ -429,7 +429,7 @@ def main():
 
         video_env = RecordVideo(make_env_for_video(), video_dir, episode_trigger=lambda x: x < 5)
         for episode in range(1, 6):
-            state, _ = video_env.reset()
+            state, _ = video_env.reset(seed=args.seed + episode)
             while not any(video_env.step(ppo_agent.select_action(state))[2:4]):  # Run until terminated/truncated
                 pass
             print(f"Video saved for episode {episode}")
@@ -445,8 +445,8 @@ def main():
         rewards = []
         successes = 0
 
-        for i in range(args.n_test_episodes):
-            state, _ = env.reset()
+        for episode in range(args.n_test_episodes):
+            state, _ = env.reset(seed=np.random.randint(0, 10000))
             cumulative_reward = 0
             terminated = False
             truncated = False

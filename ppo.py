@@ -184,6 +184,11 @@ class PPO:
         self.buffer.clear()
         torch.cuda.empty_cache()
 
+        for param in self.policy.parameters():
+            if param.grad is not None:
+                # print(f"[DEBUG] Gradient Norm: {torch.norm(param.grad).item()}")
+                continue
+
         return total_loss / self.K_epochs, torch.stack(all_advantages).mean()
 
     def save(self, checkpoint_path):

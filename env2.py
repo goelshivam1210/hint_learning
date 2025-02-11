@@ -68,14 +68,15 @@ class SimpleEnv2(MiniGridEnv):
             # Track which resources have been collected during the entire training
             self.collected_resources_global = set()
 
-            self.useless_items = ["feather", "bone"]  # Items that do nothing
+            # self.useless_items = ["feather", "bone"]  # Items that do nothing
 
             # resource_names to reflect only non-collected world items
             self.resource_names = ["iron_ore", 
                                    "copper_ore", "bronze_ore", "silver_ore", "gold_ore",
                                     # "tree",
                                     "treasure", "crafting_table", 
-                                    "wall"] + self.useless_items # for lidar and inventory
+                                    "wall"]
+            # + self.useless_items # for lidar and inventory
             
             self.inventory_items = ["iron",
                                      "copper", "bronze", "silver", "gold",
@@ -83,7 +84,8 @@ class SimpleEnv2(MiniGridEnv):
                                     "iron_sword", 
                                     "titanium_sword",
                                     "copper_sword", "bronze_sword", "silver_sword", "gold_sword",
-                                    "treasure"]+ self.useless_items
+                                    "treasure"]
+            # + self.useless_items
             
             # self.facing_objects = self.resource_names + ["nothing"]  # Include "nothing" for facing logic
 
@@ -114,7 +116,7 @@ class SimpleEnv2(MiniGridEnv):
             self.action_space = gym.spaces.Discrete(len(self.Actions))
             # print (f"Actions space in the constructor = {self.action_space}")
 
-        # Calculate observation space dimensions
+            # Calculate observation space dimensions
             lidar_shape = 8 * len(self.resource_names)  # Flattened lidar
             inventory_shape = len(self.inventory_items)  # Inventory items
             # facing_object_shape = len(self.facing_objects)  # One-hot vector for facing object
@@ -153,8 +155,8 @@ class SimpleEnv2(MiniGridEnv):
         self.place_obj(Resource("purple", "bronze_ore"), top=(0, 0))
         self.place_obj(Resource("green", "silver_ore"), top=(0, 0))
         self.place_obj(Resource("yellow", "gold_ore"), top=(0, 0))
-        self.place_obj(Resource("grey", "bone"), top=(0, 0))
-        self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
+        # self.place_obj(Resource("grey", "bone"), top=(0, 0))
+        # self.place_obj(Resource("grey", "feather"), top=(0, 0)) 
         # for _ in range (5):
         #     self.place_obj(Resource("green", "tree"), top=(0, 0))
 
@@ -366,7 +368,7 @@ class SimpleEnv2(MiniGridEnv):
         return None, None  # Return None if no valid adjacent position is found
     
     def step(self, action):
-        reward = -1  # Default time step penalty
+        reward = -0.5  # Default time step penalty
         terminated = False
         truncated = False
         
@@ -414,7 +416,7 @@ class SimpleEnv2(MiniGridEnv):
                     self.inventory.append("treasure")
                     self.grid.set(*fwd_pos, None)  # Remove treasure from grid
                     # print("Treasure obtained!")
-                    reward = 600  # Large reward for success
+                    reward = 1000  # Large reward for success
                     terminated = True
                     truncated = True  # Episode should stop immediately
                     self.treasure_obtained = True

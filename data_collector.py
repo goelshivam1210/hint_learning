@@ -18,7 +18,6 @@ class TrajectoryProcessor:
 
     def store_trajectory(self, trajectory):
         """Store trajectories by extracting constraints that define graph vertices."""
-
         
         for t in trajectory:
             # Extract values directly from constraint dictionaries
@@ -59,6 +58,11 @@ class TransitionGraph:
     def __init__(self):
         self.graph = nx.DiGraph()
         self.constraint_order = []  # Store constraint order for legend
+        self.seen_transitions = set()  # Track transitions per episode
+
+    def reset_episode(self):
+        """Reset the set of seen transitions at the start of each episode."""
+        self.seen_transitions
 
 
     def add_trajectory(self, trajectory, max_nodes=5000):
@@ -73,7 +77,7 @@ class TransitionGraph:
                 least_used_node = min(self.graph.nodes, key=lambda n: self.graph.degree[n])
                 self.graph.remove_node(least_used_node)
 
-            # Capture constraint order once
+            # Capture constraint or der once
             if not self.constraint_order:
                 self.constraint_order = [key for key, _ in state_tuple]  
 
@@ -134,26 +138,34 @@ class TransitionGraph:
             # print(f"Graph saved at: {save_path}")
             plt.close()  # Close after saving
 
-    def prune_graph(self):
-        """Remove redundant edges where direct transitions exist."""
-        edges_to_remove = []
-        for node in self.graph:
-            successors = list(self.graph.successors(node))
-            for i, s1 in enumerate(successors):
-                for s2 in successors[i+1:]:
-                    if nx.has_path(self.graph, s1, s2):
-                        edges_to_remove.append((node, s2))
-        self.graph.remove_edges_from(edges_to_remove)
+    # def prune_graph(self):
+        # """Remove redundant edges where direct transitions exist."""
+        # edges_to_remove = []
+        # for node in self.graph:
+        #     successors = list(self.graph.successors(node))
+        #     for i, s1 in enumerate(successors):
+        #         for s2 in successors[i+1:]:
+        #             if nx.has_path(self.graph, s1, s2):
+        #                 edges_to_remove.append((node, s2))
+        # self.graph.remove_edges_from(edges_to_remove)
 
-    def compute_reward(self):
-        """Assign rewards based on transition frequency."""
-        if hasattr(self, "cached_rewards"):
-            return self.cached_rewards  # Return cached rewards if available
+    # def compute_reward(self):
+    #     """Assign rewards based on transition frequency."""
+    #     if hasattr(self, "cached_rewards"):
+    #         return self.cached_rewards  # Return cached rewards if available
 
-        reward_function = {}
-        for u, v, data in self.graph.edges(data=True):
-            frequency = data["weight"]
-            reward_function[(u, v)] = 1 / (frequency + 1e-5)  # Inverse frequency
+    #     reward_function = {}
+    #     for u, v, data in self.graph.edges(data=True):
+    #         frequency = data["weight"]
+    #         reward_function[(u, v)] = 1 / (frequency + 1e-5)  # Inverse frequency
 
-        self.cached_rewards = reward_function  # Cache the result
-        return reward_function
+    #     self.cached_rewards = reward_function  # Cache the result
+    #     return reward_function
+
+    def compute_reward(self, transition):
+        """Assign rewards simply for having a new transition, once per episode."""
+        if transition in self.seen_transitions:
+            return 0  # No reward for repeat transitions in the same episode
+        else:
+            self.seen_transitions.add(transition)
+            return 10  # Give a fixed reward for each unique transition in the episode
